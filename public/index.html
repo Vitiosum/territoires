@@ -90,6 +90,11 @@
 
   <div id="chips"></div>
 
+  <div class="tabs" id="period-tabs" style="display:none">
+    <button id="period-all" class="on">Tout</button>
+    <button id="period-year">Cette année</button>
+  </div>
+
   <div class="row">
     <div class="stat"><b id="s-tiles">–</b><i>cases</i></div>
     <div class="stat"><b id="s-km">–</b><i>km</i></div>
@@ -268,8 +273,10 @@ function applyFilter() {
   map.getSource("tiles")?.setData({ type: "FeatureCollection", features });
 }
 
+let periodSince = null; // null = tout l'historique, sinon "YYYY-MM-DD"
+
 async function refreshMap() {
-  const tiles = await api("/api/tiles");
+  const tiles = await api("/api/tiles" + (periodSince ? `?since=${periodSince}` : ""));
   if (!tiles) return;
   tilesData = tiles;
   applyFilter();
@@ -296,11 +303,11 @@ async function refreshClan() {
     $("clan-title").textContent = "Pas encore de clan";
     $("clan-forms").style.display = "block";
     $("board").innerHTML = "";
-    document.querySelector(".tabs").style.display = "none";
+    document.querySelector("#clan .tabs").style.display = "none";
     return;
   }
   $("clan-forms").style.display = "none";
-  document.querySelector(".tabs").style.display = "flex";
+  document.querySelector("#clan .tabs").style.display = "flex";
   $("clan-title").innerHTML =
     `Clan · ${clan.name} <span class="code">code : ${clan.invite_code}</span>`;
   const rows = clan.members
@@ -325,6 +332,19 @@ async function refreshClan() {
     )
     .join("");
 }
+
+$("period-all").onclick = () => {
+  periodSince = null;
+  $("period-all").classList.add("on");
+  $("period-year").classList.remove("on");
+  refreshMap();
+};
+$("period-year").onclick = () => {
+  periodSince = `${new Date().getFullYear()}-01-01`;
+  $("period-year").classList.add("on");
+  $("period-all").classList.remove("on");
+  refreshMap();
+};
 
 $("tab-km").onclick = () => { metric = "km"; $("tab-km").classList.add("on"); $("tab-tiles").classList.remove("on"); refreshClan(); };
 $("tab-tiles").onclick = () => { metric = "tiles"; $("tab-tiles").classList.add("on"); $("tab-km").classList.remove("on"); refreshClan(); };
@@ -376,6 +396,8 @@ async function boot() {
   }
   $("connect").style.display = "none";
   $("logout").style.display = "block";
+  $("period-tabs").style.display = "flex";
+  $("period-year").textContent = String(new Date().getFullYear());
   $("name").textContent = `${me.firstname} ${me.lastname ?? ""}`;
   $("subtitle").textContent = "Ta carte de conquête";
   if (me.profile && me.profile.startsWith("http")) $("avatar").src = me.profile;

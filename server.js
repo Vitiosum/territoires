@@ -8,7 +8,7 @@ import {
   enqueueSingleActivity,
   resumeInterrupted,
 } from "./lib/sync.js";
-import { tileToPolygon } from "./lib/tiles.js";
+import { tileToPolygon, tilesForTrack, decodePolyline, ZOOM } from "./lib/tiles.js";
 
 const app = express();
 app.use(express.json());
@@ -106,8 +106,40 @@ app.get("/api/sports", requireAuth, async (req, res) => {
   res.json(rows);
 });
 
-// Tuiles capturées -> GeoJSON pour MapLibre (avec le sport de capture)
+// Tuiles capturées -> GeoJSON pour MapLibre (avec le sport de capture).
+// ?since=YYYY-MM-DD : recalcule les cases depuis les traces des activités
+// de la période (ex. depuis le 1er janvier), sans toucher à l'historique.
 app.get("/api/tiles", requireAuth, async (req, res) => {
+  const since = /^\d{4}-\d{2}-\d{2}$/.test(req.query.since || "")
+    ? req.query.since
+    : null;
+  if (since) {
+    const { rows } = await pool.query(
+      `SELECT sport_type, polyline FROM activities
+       WHERE athlete_id=$1 AND polyline IS NOT NULL AND start_date >= $2`,
+      [req.athleteId, since]
+    );
+    const byTile = new Map(); // "x:y" -> Set des sports
+    for (const a of rows) {
+      const sport = a.sport_type || "Autre";
+      for (const key of tilesForTrack(decodePolyline(a.polyline))) {
+        if (!byTile.has(key)) byTile.set(key, new Set());
+        byTile.get(key).add(sport);
+      }
+    }
+    return res.json({
+      type: "FeatureCollection",
+      features: [...byTile].map(([key, sports]) => {
+        const [x, y] = key.split(":").map(Number);
+        const arr = [...sports].sort();
+        return {
+          type: "Feature",
+          properties: { sport: arr[0], sports: arr },
+          geometry: { type: "Polygon", coordinates: tileToPolygon(x, y, ZOOM) },
+        };
+      }),
+    });
+  }
   const { rows } = await pool.query(
     "SELECT z, x, y, sport_type, sports FROM tiles WHERE athlete_id=$1",
     [req.athleteId]
