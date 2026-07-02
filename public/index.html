@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Territoires — ta carte de conquête</title>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<style>
+  :root {
+    --ink: #10201c;
+    --panel: rgba(250, 252, 250, 0.94);
+    --brand: #0f6e56;
+    --muted: #5c6b66;
+    --line: rgba(16, 32, 28, 0.12);
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body, #map { height: 100%; }
+  body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); overflow: hidden; }
+  #panel {
+    position: fixed;
+    top: max(16px, env(safe-area-inset-top));
+    left: 16px;
+    width: min(330px, calc(100vw - 32px));
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+    background: var(--panel);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 16px;
+    z-index: 10;
+  }
+  .head { display: flex; align-items: center; gap: 10px; }
+  .head img { width: 36px; height: 36px; border-radius: 50%; background: #dde5e0; }
+  .head b { font-size: 15px; display: block; }
+  .head span { font-size: 12.5px; color: var(--muted); }
+  #chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .chip {
+    font-size: 12px; padding: 5px 12px; border-radius: 99px;
+    border: 1px solid var(--line); background: #fff; color: var(--muted); cursor: pointer;
+  }
+  .chip.on { color: #fff; }
+  .row { display: flex; gap: 8px; margin-top: 12px; }
+  .stat { flex: 1; background: rgba(15,110,86,.08); border-radius: 10px; padding: 8px 10px; }
+  .stat b { display: block; font-size: 19px; font-variant-numeric: tabular-nums; color: #085041; }
+  .stat i { font-style: normal; font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  button.cta {
+    width: 100%; margin-top: 12px; padding: 12px; font-size: 15px; font-weight: 600;
+    color: #fff; background: #fc4c02; border: 0; border-radius: 10px; cursor: pointer;
+  }
+  #progress { margin-top: 10px; display: none; }
+  #progress .bar { height: 6px; background: rgba(16,32,28,.1); border-radius: 3px; overflow: hidden; }
+  #progress .fill { height: 100%; width: 0%; background: var(--brand); transition: width .6s ease; }
+  #progress p { font-size: 12px; color: var(--muted); margin-top: 5px; }
+  #clan { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; display: none; }
+  #clan h2 { font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  #clan .code { margin-left: auto; font-size: 11.5px; color: var(--muted); }
+  .tabs { display: flex; gap: 6px; margin-top: 10px; }
+  .tabs button {
+    flex: 1; padding: 7px; font-size: 12.5px; border-radius: 8px;
+    border: 1px solid var(--line); background: #fff; color: var(--muted); cursor: pointer;
+  }
+  .tabs button.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .member { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 13px; }
+  .member:first-of-type { border-top: 0; }
+  .member .rank { color: var(--muted); font-size: 12px; width: 14px; }
+  .member .who { flex: 1; }
+  .member .val { color: var(--muted); font-variant-numeric: tabular-nums; }
+  #clan-forms { display: none; margin-top: 10px; }
+  #clan-forms input {
+    width: 100%; padding: 9px 10px; font-size: 13.5px;
+    border: 1px solid var(--line); border-radius: 8px; margin-top: 6px;
+  }
+  #clan-forms .mini { display: flex; gap: 6px; }
+  #clan-forms button {
+    padding: 9px 12px; font-size: 12.5px; border-radius: 8px; border: 0;
+    background: var(--brand); color: #fff; cursor: pointer; margin-top: 6px;
+  }
+  #logout { all: unset; display: block; margin-top: 10px; font-size: 12px; color: var(--muted); cursor: pointer; text-decoration: underline; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="panel">
+  <div class="head">
+    <img id="avatar" alt="">
+    <div><b id="name">Territoires</b><span id="subtitle">Chaque sortie capture des cases.</span></div>
+  </div>
+
+  <div id="chips"></div>
+
+  <div class="row">
+    <div class="stat"><b id="s-tiles">–</b><i>cases</i></div>
+    <div class="stat"><b id="s-km">–</b><i>km</i></div>
+    <div class="stat"><b id="s-acts">–</b><i>sorties</i></div>
+  </div>
+
+  <div id="progress">
+    <div class="bar"><div class="fill" id="fill"></div></div>
+    <p id="progress-label">Synchronisation…</p>
+  </div>
+
+  <button class="cta" id="connect">Se connecter avec Strava</button>
+
+  <div id="clan">
+    <h2 id="clan-title">Clan</h2>
+    <div class="tabs">
+      <button id="tab-km" class="on">Kilomètres</button>
+      <button id="tab-tiles">Cases conquises</button>
+    </div>
+    <div id="board"></div>
+    <div id="clan-forms">
+      <input id="clan-name" placeholder="Nom du clan à créer">
+      <button id="create-clan">Créer mon clan</button>
+      <div class="mini">
+        <input id="clan-code" placeholder="Code d'invitation">
+        <button id="join-clan">Rejoindre</button>
+      </div>
+    </div>
+  </div>
+
+  <button id="logout" style="display:none">déconnexion</button>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script>
+// Couleurs par sport : palette fixe, attribuée dans l'ordre de fréquence
+const PALETTE = ["#1D9E75", "#D4537E", "#BA7517", "#378ADD", "#7F77DD", "#993C1D", "#5DCAA5", "#85B7EB"];
+const sportColors = {};
+let hiddenSports = new Set();
+let metric = "km";
+
+const map = new maplibregl.Map({
+  container: "map",
+  center: [2.2, 47.0],
+  zoom: 5.3,
+  style: {
+    version: 8,
+    sources: {
+      osm: {
+        type: "raster",
+        tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+        tileSize: 256,
+        attribution: "© OpenStreetMap contributors",
+      },
+    },
+    layers: [{ id: "osm", type: "raster", source: "osm" }],
+  },
+});
+map.addControl(new maplibregl.NavigationControl(), "bottom-right");
+
+const $ = (id) => document.getElementById(id);
+let firstFit = true;
+
+map.on("load", () => {
+  map.addSource("tiles", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  map.addLayer({
+    id: "tiles-fill", type: "fill", source: "tiles",
+    paint: { "fill-color": ["get", "color"], "fill-opacity": 0.34 },
+  });
+  map.addLayer({
+    id: "tiles-line", type: "line", source: "tiles",
+    paint: { "line-color": ["get", "color"], "line-width": 0.6, "line-opacity": 0.6 },
+  });
+  boot();
+});
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (res.status === 401) return null;
+  if (!res.ok) return null;
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+function colorFor(sport) {
+  if (!sportColors[sport]) {
+    sportColors[sport] = PALETTE[Object.keys(sportColors).length % PALETTE.length];
+  }
+  return sportColors[sport];
+}
+
+async function refreshSports() {
+  const sports = (await api("/api/sports")) || [];
+  const box = $("chips");
+  box.innerHTML = "";
+  for (const s of sports) {
+    const c = colorFor(s.sport_type);
+    const el = document.createElement("button");
+    el.className = "chip" + (hiddenSports.has(s.sport_type) ? "" : " on");
+    el.textContent = s.sport_type;
+    if (!hiddenSports.has(s.sport_type)) {
+      el.style.background = c;
+      el.style.borderColor = c;
+    }
+    el.onclick = () => {
+      hiddenSports.has(s.sport_type) ? hiddenSports.delete(s.sport_type) : hiddenSports.add(s.sport_type);
+      refreshSports();
+      applyFilter();
+    };
+    box.appendChild(el);
+  }
+}
+
+let tilesData = { type: "FeatureCollection", features: [] };
+function applyFilter() {
+  const filtered = {
+    type: "FeatureCollection",
+    features: tilesData.features.filter((f) => !hiddenSports.has(f.properties.sport)),
+  };
+  map.getSource("tiles")?.setData(filtered);
+}
+
+async function refreshMap() {
+  const tiles = await api("/api/tiles");
+  if (!tiles) return;
+  tiles.features.forEach((f) => (f.properties.color = colorFor(f.properties.sport)));
+  tilesData = tiles;
+  applyFilter();
+  if (firstFit && tiles.features.length) {
+    firstFit = false;
+    const b = new maplibregl.LngLatBounds();
+    tiles.features.forEach((f) => f.geometry.coordinates[0].forEach((c) => b.extend(c)));
+    map.fitBounds(b, { padding: 60, maxZoom: 12 });
+  }
+}
+
+async function refreshStats() {
+  const s = await api("/api/stats");
+  if (!s) return;
+  $("s-tiles").textContent = s.tiles.toLocaleString("fr-FR");
+  $("s-acts").textContent = s.activities.toLocaleString("fr-FR");
+  $("s-km").textContent = Math.round(s.distance_m / 1000).toLocaleString("fr-FR");
+}
+
+async function refreshClan() {
+  const clan = await api("/api/clans/me");
+  $("clan").style.display = "block";
+  if (!clan) {
+    $("clan-title").textContent = "Pas encore de clan";
+    $("clan-forms").style.display = "block";
+    $("board").innerHTML = "";
+    document.querySelector(".tabs").style.display = "none";
+    return;
+  }
+  $("clan-forms").style.display = "none";
+  document.querySelector(".tabs").style.display = "flex";
+  $("clan-title").innerHTML =
+    `Clan · ${clan.name} <span class="code">code : ${clan.invite_code}</span>`;
+  const rows = clan.members
+    .map((m) => ({
+      name: `${m.firstname} ${m.lastname ?? ""}`.trim(),
+      km: Math.round(m.km_m / 1000),
+      tiles: m.tiles,
+    }))
+    .sort((a, b) => (metric === "km" ? b.km - a.km : b.tiles - a.tiles));
+  $("board").innerHTML = rows
+    .map(
+      (m, i) => `
+      <div class="member">
+        <span class="rank">${i + 1}</span>
+        <span class="who">${m.name}</span>
+        <span class="val">${
+          metric === "km"
+            ? m.km.toLocaleString("fr-FR") + " km"
+            : m.tiles.toLocaleString("fr-FR") + " cases"
+        }</span>
+      </div>`
+    )
+    .join("");
+}
+
+$("tab-km").onclick = () => { metric = "km"; $("tab-km").classList.add("on"); $("tab-tiles").classList.remove("on"); refreshClan(); };
+$("tab-tiles").onclick = () => { metric = "tiles"; $("tab-tiles").classList.add("on"); $("tab-km").classList.remove("on"); refreshClan(); };
+
+$("create-clan").onclick = async () => {
+  const name = $("clan-name").value.trim();
+  if (!name) return;
+  await api("/api/clans", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  refreshClan();
+};
+$("join-clan").onclick = async () => {
+  const code = $("clan-code").value.trim();
+  if (!code) return;
+  const r = await api("/api/clans/join", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+  if (!r) alert("Code inconnu");
+  refreshClan();
+};
+
+let pollTimer = null;
+async function poll() {
+  const me = await api("/api/me");
+  if (!me) return;
+  const syncing = me.sync_status === "syncing" || me.sync_status === "queued";
+  $("progress").style.display = syncing ? "block" : "none";
+  if (syncing && me.sync_total > 0) {
+    $("fill").style.width = `${Math.round((100 * me.sync_done) / me.sync_total)}%`;
+    $("progress-label").textContent =
+      `Synchronisation : ${me.sync_done} / ${me.sync_total} activités`;
+  } else if (syncing) {
+    $("progress-label").textContent = "Récupération de la liste des activités…";
+  }
+  await Promise.all([refreshStats(), refreshMap(), refreshSports()]);
+  if (syncing) pollTimer = setTimeout(poll, 8000);
+}
+
+async function boot() {
+  const me = await api("/api/me");
+  if (!me) {
+    $("connect").style.display = "block";
+    return;
+  }
+  $("connect").style.display = "none";
+  $("logout").style.display = "block";
+  $("name").textContent = `${me.firstname} ${me.lastname ?? ""}`;
+  $("subtitle").textContent = "Ta carte de conquête";
+  if (me.profile && me.profile.startsWith("http")) $("avatar").src = me.profile;
+  refreshClan();
+  poll();
+}
+
+$("connect").onclick = () => (location.href = "/auth/strava");
+$("logout").onclick = async () => {
+  await api("/auth/logout", { method: "POST" });
+  location.reload();
+};
+</script>
+</body>
+</html>
