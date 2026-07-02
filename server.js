@@ -109,14 +109,17 @@ app.get("/api/sports", requireAuth, async (req, res) => {
 // Tuiles capturées -> GeoJSON pour MapLibre (avec le sport de capture)
 app.get("/api/tiles", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
-    "SELECT z, x, y, sport_type FROM tiles WHERE athlete_id=$1",
+    "SELECT z, x, y, sport_type, sports FROM tiles WHERE athlete_id=$1",
     [req.athleteId]
   );
   res.json({
     type: "FeatureCollection",
     features: rows.map((t) => ({
       type: "Feature",
-      properties: { sport: t.sport_type || "Autre" },
+      properties: {
+        sport: t.sport_type || "Autre",
+        sports: t.sports?.length ? t.sports : [t.sport_type || "Autre"],
+      },
       geometry: { type: "Polygon", coordinates: tileToPolygon(t.x, t.y, t.z) },
     })),
   });
