@@ -7,6 +7,7 @@ import {
   enqueueFullSync,
   enqueueSingleActivity,
   resumeInterrupted,
+  captureTerritory,
 } from "./lib/sync.js";
 import { tileToPolygon, tilesForTrack, decodePolyline, tileAreaKm2, tileCenter, ZOOM } from "./lib/tiles.js";
 import { countryOf } from "./lib/countries.js";
@@ -284,6 +285,54 @@ app.get("/api/leaderboard/clans", requireAuth, async (req, res) => {
      LIMIT 10`
   );
   res.json(rows);
+});
+
+// Turf war : carte du territoire partagé, colorée par propriétaire.
+// Chaque case z14 a un seul propriétaire (le dernier l'ayant capturée).
+app.get("/api/territory", requireAuth, async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT t.z, t.x, t.y, t.owner_id, a.firstname, a.lastname
+     FROM territory t JOIN athletes a ON a.id = t.owner_id`
+  );
+  res.json({
+    type: "FeatureCollection",
+    features: rows.map((t) => ({
+      type: "Feature",
+      properties: {
+        owner: Number(t.owner_id),
+        name: `${t.firstname || ""} ${t.lastname || ""}`.trim(),
+        mine: Number(t.owner_id) === req.athleteId,
+      },
+      geometry: { type: "Polygon", coordinates: tileToPolygon(t.x, t.y, t.z) },
+    })),
+  });
+});
+
+// Recalcule le territoire de l'athlète depuis ses traces déjà stockées
+// (sans re-solliciter Strava) : sert à peupler la carte à la 1re ouverture.
+app.post("/api/territory/refresh", requireAuth, async (req, res) => {
+  await captureTerritory(req.athleteId);
+  res.json({ ok: true });
+});
+
+// Classement territoire : surface détenue par athlète (cases + km²)
+app.get("/api/leaderboard/territory", requireAuth, async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT t.owner_id, a.firstname, a.lastname, t.x, t.y, t.z
+     FROM territory t JOIN athletes a ON a.id = t.owner_id`
+  );
+  const by = new Map();
+  for (const t of rows) {
+    const id = Number(t.owner_id);
+    if (!by.has(id))
+      by.set(id, { id, name: `${t.firstname || ""} ${t.lastname || ""}`.trim(), tiles: 0, area_km2: 0 });
+    const o = by.get(id);
+    o.tiles++;
+    o.area_km2 += tileAreaKm2(t.x, t.y, t.z);
+  }
+  const out = [...by.values()].sort((a, b) => b.tiles - a.tiles);
+  const rank = out.findIndex((o) => o.id === req.athleteId) + 1;
+  res.json({ top: out.slice(0, 10), me: rank ? { ...out[rank - 1], rank } : null, total: out.length });
 });
 
 // Sports réellement présents dans l'historique (pour les chips de filtre)

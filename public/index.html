@@ -227,7 +227,7 @@
     <button id="view-colors">🎨 Couleurs</button>
   </div>
 
-  <button id="territory-toggle" style="display:none">🏰 Mode Conquête d'aire</button>
+  <button id="territory-toggle" style="display:none">🏰 Mode Territoire — qui tient quoi</button>
   <div id="conquest"></div>
 
   <div class="row">
@@ -247,6 +247,7 @@
     <div class="tabs">
       <button id="lb-players" class="on">Joueurs</button>
       <button id="lb-clans">Clans</button>
+      <button id="lb-territory">Territoire</button>
     </div>
     <div id="lb-rows"></div>
   </div>
@@ -359,11 +360,13 @@ const initLayers = () => {
 
   map.addLayer({
     id: "territory-fill", type: "fill", source: "territory",
-    paint: { "fill-color": "#0f6e56", "fill-opacity": 0.22 },
+    layout: { visibility: "none" },
+    paint: { "fill-color": ["get", "color"], "fill-opacity": 0.45 },
   });
   map.addLayer({
     id: "territory-line", type: "line", source: "territory",
-    paint: { "line-color": "#0f6e56", "line-width": 1.6, "line-opacity": 0.6 },
+    layout: { visibility: "none" },
+    paint: { "line-color": ["get", "color"], "line-width": 0.5, "line-opacity": 0.5 },
   });
 
   map.addLayer({
@@ -428,9 +431,15 @@ let fogMode = true;
 let territoryMode = false;
 function applyViewMode() {
   if (!styleReady) return;
-  map.setLayoutProperty("fog-fill", "visibility", fogMode ? "visible" : "none");
+  // Mode territoire (turf war) : on masque la carte personnelle et on montre
+  // le territoire partagé coloré par propriétaire.
+  const perso = !territoryMode;
+  map.setLayoutProperty("fog-fill", "visibility", perso && fogMode ? "visible" : "none");
   for (const id of ["zones-fill", "zones-hybrid", "zones-line"])
-    map.setLayoutProperty(id, "visibility", fogMode ? "none" : "visible");
+    map.setLayoutProperty(id, "visibility", perso && !fogMode ? "visible" : "none");
+  for (const id of ["territory-fill", "territory-line"])
+    map.setLayoutProperty(id, "visibility", territoryMode ? "visible" : "none");
+  $("view-tabs").style.opacity = territoryMode ? 0.4 : 1;
 }
 
 async function api(path, opts) {
@@ -525,34 +534,10 @@ function applyFilter() {
   }
   map.getSource("tiles")?.setData({ type: "FeatureCollection", features });
 
-  // Mode Conquête : on remplit l'intérieur des boucles (aire encerclée) et
-  // le brouillard se lève sur tout le territoire, pas seulement les traces.
-  let fogGeom;
-  if (territoryMode) {
-    const { filled, interior } = conquestCells();
-    const { outers, pockets } = cellRings(filled, CONQUEST_N, [0.4, 0.25, 0.25]);
-    const polys = outers.map((o) => [o]);
-    for (const p of pockets) {
-      const host = polys.find((poly) => pointInRing(p[0][0], p[0][1], poly[0]));
-      if (host) host.push(p);
-    }
-    map.getSource("territory")?.setData({
-      type: "Feature", properties: {}, geometry: { type: "MultiPolygon", coordinates: polys },
-    });
-    fogGeom = fogFromCells(filled, CONQUEST_N);
-    let area = 0;
-    for (const k of interior) {
-      const [x, y] = k.split(":").map(Number);
-      area += cellAreaKm2(x, y, CONQUEST_N);
-    }
-    showConquest(area);
-  } else {
-    map.getSource("territory")?.setData({ type: "FeatureCollection", features: [] });
-    // brouillard : tracé fin le long des routes si chargé, sinon les cases
-    rebuildTraceCells();
-    fogGeom = traceCells?.size ? fogFromTrace() : fogGeometry(features);
-    showConquest();
-  }
+  // Carte personnelle : brouillard fin le long des traces (ou contours des
+  // cases en repli). Le territoire partagé (turf war) est une couche séparée.
+  rebuildTraceCells();
+  const fogGeom = traceCells?.size ? fogFromTrace() : fogGeometry(features);
   map.getSource("fog")?.setData({ type: "Feature", properties: {}, geometry: fogGeom });
 
   // Zones colorées : mêmes contours arrondis que le brouillard, un
@@ -1060,7 +1045,19 @@ function lbRow(rank, who, tiles, leaderTiles, isMe) {
 }
 
 async function refreshRanking() {
-  if (lbMode === "clans") {
+  if (lbMode === "territory") {
+    const lb = await api("/api/leaderboard/territory");
+    if (!lb) return;
+    const leader = lb.top[0]?.tiles || 0;
+    let html = lb.top.length
+      ? lb.top.map((p, i) =>
+          lbRow(i + 1, `${p.name}`, p.tiles, leader, lb.me && p.id === lb.me.id)
+        ).join("")
+      : '<div class="lb-sep">Territoire vierge — à toi de jouer</div>';
+    if (lb.me && lb.me.rank > lb.top.length)
+      html += `<div class="lb-sep">…</div>` + lbRow(lb.me.rank, lb.me.name, lb.me.tiles, leader, true);
+    $("lb-rows").innerHTML = html;
+  } else if (lbMode === "clans") {
     const rows = (await api("/api/leaderboard/clans")) || [];
     $("lb-rows").innerHTML = rows.length
       ? rows.map((c, i) =>
@@ -1084,8 +1081,14 @@ async function refreshRanking() {
   $("ranking").style.display = "block";
 }
 
-$("lb-players").onclick = () => { lbMode = "players"; $("lb-players").classList.add("on"); $("lb-clans").classList.remove("on"); refreshRanking(); };
-$("lb-clans").onclick = () => { lbMode = "clans"; $("lb-clans").classList.add("on"); $("lb-players").classList.remove("on"); refreshRanking(); };
+function setLbTab(mode, btn) {
+  lbMode = mode;
+  for (const b of ["lb-players", "lb-clans", "lb-territory"]) $(b).classList.toggle("on", b === btn);
+  refreshRanking();
+}
+$("lb-players").onclick = () => setLbTab("players", "lb-players");
+$("lb-clans").onclick = () => setLbTab("clans", "lb-clans");
+$("lb-territory").onclick = () => setLbTab("territory", "lb-territory");
 
 async function refreshClan() {
   const clan = await api("/api/clans/me");
@@ -1140,8 +1143,46 @@ $("view-colors").onclick = () => {
 $("territory-toggle").onclick = () => {
   territoryMode = !territoryMode;
   $("territory-toggle").classList.toggle("on", territoryMode);
-  applyFilter();
+  applyViewMode();
+  if (territoryMode) refreshTerritory();
+  else $("conquest").style.display = "none";
 };
+
+// Couleur stable par propriétaire (le mien en vert de marque)
+const OWNER_PALETTE = ["#e23a3a", "#2e71f0", "#f5a623", "#8e3ae2", "#00a3a3", "#e24a9b", "#7a4e1d", "#d61f69"];
+const ownerColors = {};
+function ownerColor(id, mine) {
+  if (mine) return "#1e9e4f";
+  if (!ownerColors[id]) ownerColors[id] = OWNER_PALETTE[Object.keys(ownerColors).length % OWNER_PALETTE.length];
+  return ownerColors[id];
+}
+
+// Charge et affiche le territoire partagé (turf war)
+let territoryPopulated = false;
+async function refreshTerritory() {
+  let geo = await api("/api/territory");
+  // 1re ouverture : si aucun territoire à moi, on le calcule depuis mes traces
+  if (geo && !territoryPopulated && !geo.features.some((f) => f.properties.mine)) {
+    territoryPopulated = true;
+    $("conquest").style.display = "block";
+    $("conquest").textContent = "🏰 Calcul de ton territoire…";
+    await api("/api/territory/refresh", { method: "POST" });
+    geo = await api("/api/territory");
+  }
+  if (!geo) return;
+  for (const f of geo.features) f.properties.color = ownerColor(f.properties.owner, f.properties.mine);
+  map.getSource("territory")?.setData(geo);
+  const lb = await api("/api/leaderboard/territory");
+  const el = $("conquest");
+  el.style.display = "block";
+  if (lb?.me) {
+    el.innerHTML =
+      `🏰 Ton territoire : <b>${lb.me.tiles.toLocaleString("fr-FR")} cases</b> · ` +
+      `${Math.round(lb.me.area_km2).toLocaleString("fr-FR")} km² · #${lb.me.rank}`;
+  } else {
+    el.textContent = "Roule ou encercle une zone pour la conquérir.";
+  }
+}
 
 $("period-all").onclick = () => {
   periodSince = null;
