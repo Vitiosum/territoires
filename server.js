@@ -164,17 +164,26 @@ app.get("/api/countries", requireAuth, async (req, res) => {
     if (!byCountry.has(c.name)) {
       byCountry.set(c.name, {
         name: c.name, flag: c.flag, country_km2: c.areaKm2,
-        tiles: 0, area_km2: 0, km: 0, activities: 0,
+        tiles: 0, area_km2: 0, km: 0, activities: 0, bounds: null,
       });
     }
     return byCountry.get(c.name);
   };
   for (const t of tiles) {
-    const c = countryOf(...tileCenter(t.x, t.y, t.z));
+    const center = tileCenter(t.x, t.y, t.z);
+    const c = countryOf(...center);
     if (!c) continue;
     const b = bucket(c);
     b.tiles++;
     b.area_km2 += tileAreaKm2(t.x, t.y, t.z);
+    // emprise de TES cases dans le pays, pour le bouton "Y aller"
+    if (!b.bounds) b.bounds = [center[0], center[1], center[0], center[1]];
+    else {
+      b.bounds[0] = Math.min(b.bounds[0], center[0]);
+      b.bounds[1] = Math.min(b.bounds[1], center[1]);
+      b.bounds[2] = Math.max(b.bounds[2], center[0]);
+      b.bounds[3] = Math.max(b.bounds[3], center[1]);
+    }
   }
   // km par pays : chaque activité est rattachée au pays de son point de départ
   const { rows: acts } = await pool.query(

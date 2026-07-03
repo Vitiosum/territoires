@@ -48,7 +48,9 @@
   }
   #countries-card h2 { font-size: 15px; }
   #countries-card .close { float: right; border: 0; background: none; font-size: 18px; cursor: pointer; color: var(--muted); }
-  .country-row { padding: 9px 0; border-top: 1px solid var(--line); font-size: 13.5px; }
+  .country-row { padding: 9px 0; border-top: 1px solid var(--line); font-size: 13.5px; cursor: pointer; }
+  .country-row:hover .who { color: var(--brand); }
+  .country-line .go { color: var(--brand); font-size: 11.5px; flex: none; }
   .country-row:first-of-type { border-top: 0; margin-top: 8px; }
   .country-line { display: flex; gap: 8px; align-items: baseline; }
   .country-line .who { flex: 1; }
@@ -703,16 +705,28 @@ async function openCountries() {
 
   const rows = (await api("/api/countries")) || [];
   $("countries-rows").innerHTML = rows.length
-    ? rows.map((c) => `
-      <div class="country-row">
+    ? rows.map((c, i) => `
+      <div class="country-row" data-i="${i}" title="Voir mes cases : ${c.name}">
         <div class="country-line">
           <span>${c.flag || "🏳️"}</span>
           <span class="who">${c.name}</span>
           <span class="val">${Math.round(c.km).toLocaleString("fr-FR")} km · ${c.tiles.toLocaleString("fr-FR")} cases · ${fmtPct(c.pct)}</span>
+          <span class="go">Y aller ›</span>
         </div>
         <div class="country-bar"><div style="width:${Math.max(0.5, Math.min(100, c.pct))}%"></div></div>
       </div>`).join("")
     : '<div class="lb-sep">Aucune case pour l\'instant</div>';
+  for (const el of document.querySelectorAll(".country-row")) {
+    el.onclick = () => {
+      const c = rows[Number(el.dataset.i)];
+      if (!c?.bounds) return;
+      $("countries-modal").style.display = "none";
+      map.fitBounds(
+        [[c.bounds[0], c.bounds[1]], [c.bounds[2], c.bounds[3]]],
+        { padding: 80, maxZoom: 12 }
+      );
+    };
+  }
 }
 $("countries-btn").onclick = openCountries;
 $("countries-close").onclick = () => ($("countries-modal").style.display = "none");
