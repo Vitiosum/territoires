@@ -529,11 +529,8 @@ function applyFilter() {
   // le brouillard se lève sur tout le territoire, pas seulement les traces.
   let fogGeom;
   if (territoryMode) {
-    const cells = conqueredCells(features);
-    const interior = interiorCells(cells);
-    const union = new Set(cells);
-    for (const k of interior) union.add(k);
-    const { outers, pockets } = cellRings(union, TILE_N, [0.4, 0.25, 0.25]);
+    const { filled, interior } = conquestCells();
+    const { outers, pockets } = cellRings(filled, TRACE_N, [0.4, 0.25, 0.25]);
     const polys = outers.map((o) => [o]);
     for (const p of pockets) {
       const host = polys.find((poly) => pointInRing(p[0][0], p[0][1], poly[0]));
@@ -542,19 +539,19 @@ function applyFilter() {
     map.getSource("territory")?.setData({
       type: "Feature", properties: {}, geometry: { type: "MultiPolygon", coordinates: polys },
     });
-    fogGeom = fogFromCells(union);
+    fogGeom = fogFromCells(filled, TRACE_N);
     let area = 0;
     for (const k of interior) {
       const [x, y] = k.split(":").map(Number);
-      area += tileAreaKm2Client(x, y);
+      area += cellAreaKm2(x, y, TRACE_N);
     }
-    showConquest(interior.size, area);
+    showConquest(area);
   } else {
     map.getSource("territory")?.setData({ type: "FeatureCollection", features: [] });
     // brouillard : tracé fin le long des routes si chargé, sinon les cases
     rebuildTraceCells();
     fogGeom = traceCells?.size ? fogFromTrace() : fogGeometry(features);
-    showConquest(null);
+    showConquest();
   }
   map.getSource("fog")?.setData({ type: "Feature", properties: {}, geometry: fogGeom });
 
@@ -573,12 +570,12 @@ function applyFilter() {
 }
 
 // Affiche/masque le compteur de conquête d'aire sous le bouton du mode
-function showConquest(count, areaKm2) {
+function showConquest(areaKm2) {
   const el = $("conquest");
-  if (count == null) { el.style.display = "none"; return; }
+  if (areaKm2 == null) { el.style.display = "none"; return; }
   el.style.display = "block";
-  el.innerHTML = count
-    ? `🏰 <b>+${count.toLocaleString("fr-FR")}</b> cases conquises à l'intérieur · ${Math.round(areaKm2).toLocaleString("fr-FR")} km²`
+  el.innerHTML = areaKm2 >= 0.5
+    ? `🏰 <b>+${Math.round(areaKm2).toLocaleString("fr-FR")} km²</b> conquis à l'intérieur de tes boucles`
     : "Ferme une boucle pour conquérir tout l'intérieur.";
 }
 
@@ -659,17 +656,17 @@ function interiorCells(cells) {
   return interior;
 }
 
-// Surface réelle d'une case z14 (km²), dépend de la latitude (Web Mercator)
-function tileAreaKm2Client(x, y) {
-  const latOf = (yy) => (Math.atan(Math.sinh(Math.PI * (1 - (2 * yy) / TILE_N))) * 180) / Math.PI;
+// Surface réelle d'une cellule de grille (km²), selon la latitude (Mercator)
+function cellAreaKm2(x, y, n) {
+  const latOf = (yy) => (Math.atan(Math.sinh(Math.PI * (1 - (2 * yy) / n))) * 180) / Math.PI;
   const lat1 = latOf(y), lat2 = latOf(y + 1);
   return Math.abs(lat1 - lat2) * 111.32 *
-    ((360 / TILE_N) * 111.32 * Math.cos((((lat1 + lat2) / 2) * Math.PI) / 180));
+    ((360 / n) * 111.32 * Math.cos((((lat1 + lat2) / 2) * Math.PI) / 180));
 }
 
 // Voile percé du contour arrondi d'un ensemble de cellules (mode Conquête)
-function fogFromCells(cells) {
-  const { outers, pockets } = cellRings(cells, TILE_N, [0.4, 0.25, 0.25]);
+function fogFromCells(cells, n) {
+  const { outers, pockets } = cellRings(cells, n, [0.4, 0.25, 0.25]);
   return {
     type: "MultiPolygon",
     coordinates: [[WORLD_RING, ...outers], ...pockets.map((r) => [r])],
@@ -799,50 +796,73 @@ function decodePoly(str) {
   return coords;
 }
 
+function toGridFine(lat, lng, n) {
+  const latR = (lat * Math.PI) / 180;
+  return [
+    ((lng + 180) / 360) * n,
+    ((1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2) * n,
+  ];
+}
+
+// Rasterise une trace [[lat,lng]…] sur la grille fine : appelle mark(x,y)
+// pour chaque cellule traversée (+ croix), corridor watertight.
+function rasterizeTrace(pts, n, mark) {
+  const cross = (cx, cy) => {
+    mark(cx, cy); mark(cx + 1, cy); mark(cx - 1, cy); mark(cx, cy + 1); mark(cx, cy - 1);
+  };
+  let prev = null;
+  for (const [lat, lng] of pts) {
+    const cur = toGridFine(lat, lng, n);
+    if (prev) {
+      const steps = Math.max(1, Math.ceil(2 * Math.max(Math.abs(cur[0] - prev[0]), Math.abs(cur[1] - prev[1]))));
+      for (let s = 1; s <= steps; s++) {
+        cross(Math.floor(prev[0] + ((cur[0] - prev[0]) * s) / steps),
+              Math.floor(prev[1] + ((cur[1] - prev[1]) * s) / steps));
+      }
+    } else {
+      cross(Math.floor(cur[0]), Math.floor(cur[1]));
+    }
+    prev = cur;
+  }
+}
+
+// Les activités qui passent le filtre courant (sport + période)
+function visibleActivities() {
+  return (activitiesData || []).filter(
+    (a) =>
+      a.polyline &&
+      !hiddenSports.has(a.sport_type || "Autre") &&
+      !(periodSince && (!a.start_date || a.start_date < periodSince))
+  );
+}
+
 function rebuildTraceCells() {
   if (!activitiesData) return;
   const key = (periodSince || "") + "|" + [...hiddenSports].sort().join(",") + "|" + activitiesData.length;
   if (key === traceKey) return;
   traceKey = key;
-  const n = TRACE_N;
   const cells = new Set();
-  const toGrid = (lat, lng) => {
-    const latR = (lat * Math.PI) / 180;
-    return [
-      ((lng + 180) / 360) * n,
-      ((1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2) * n,
-    ];
-  };
-  const mark = (cx, cy) => {
-    cells.add(cx + ":" + cy);
-    cells.add(cx + 1 + ":" + cy);
-    cells.add(cx - 1 + ":" + cy);
-    cells.add(cx + ":" + (cy + 1));
-    cells.add(cx + ":" + (cy - 1));
-  };
-  for (const a of activitiesData) {
-    if (!a.polyline) continue;
-    if (hiddenSports.has(a.sport_type || "Autre")) continue;
-    if (periodSince && (!a.start_date || a.start_date < periodSince)) continue;
-    let prev = null;
-    for (const [lat, lng] of decodePoly(a.polyline)) {
-      const cur = toGrid(lat, lng);
-      if (prev) {
-        // échantillonnage à la demi-cellule le long du segment
-        const steps = Math.max(1, Math.ceil(2 * Math.max(Math.abs(cur[0] - prev[0]), Math.abs(cur[1] - prev[1]))));
-        for (let s = 1; s <= steps; s++) {
-          mark(
-            Math.floor(prev[0] + ((cur[0] - prev[0]) * s) / steps),
-            Math.floor(prev[1] + ((cur[1] - prev[1]) * s) / steps)
-          );
-        }
-      } else {
-        mark(Math.floor(cur[0]), Math.floor(cur[1]));
-      }
-      prev = cur;
-    }
-  }
+  const add = (x, y) => cells.add(x + ":" + y);
+  for (const a of visibleActivities()) rasterizeTrace(decodePoly(a.polyline), TRACE_N, add);
   traceCells = cells;
+}
+
+// Mode Conquête, précis : pour CHAQUE parcours en boucle, on remplit son
+// intérieur sur la grille fine (rasterisation + flood fill par activité),
+// puis on réunit traces + intérieurs. Fait au niveau du parcours — « quand
+// on fait un rond, on gagne le milieu » — même si les boucles sont éloignées.
+function conquestCells() {
+  const filled = new Set();   // traces + intérieurs (pour le rendu)
+  const interior = new Set(); // seulement l'intérieur gagné (pour le compteur)
+  for (const a of visibleActivities()) {
+    const pts = decodePoly(a.polyline);
+    if (pts.length < 6) continue;
+    const cells = new Set();
+    rasterizeTrace(pts, TRACE_N, (x, y) => cells.add(x + ":" + y));
+    for (const k of cells) filled.add(k);
+    for (const k of interiorCells(cells)) { filled.add(k); interior.add(k); }
+  }
+  return { filled, interior };
 }
 
 function fogFromTrace() {
