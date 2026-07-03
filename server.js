@@ -8,7 +8,8 @@ import {
   enqueueSingleActivity,
   resumeInterrupted,
 } from "./lib/sync.js";
-import { tileToPolygon, tilesForTrack, decodePolyline, tileAreaKm2, ZOOM } from "./lib/tiles.js";
+import { tileToPolygon, tilesForTrack, decodePolyline, tileAreaKm2, tileCenter, ZOOM } from "./lib/tiles.js";
+import { countryOf } from "./lib/countries.js";
 
 const app = express();
 app.use(express.json());
@@ -150,6 +151,50 @@ app.get("/api/stats", requireAuth, async (req, res) => {
     }
   }
   res.json({ ...rows[0], area_km2, streak });
+});
+
+// Répartition par pays : cases, km², % du pays conquis, km parcourus
+app.get("/api/countries", requireAuth, async (req, res) => {
+  const { rows: tiles } = await pool.query(
+    "SELECT x, y, z FROM tiles WHERE athlete_id=$1",
+    [req.athleteId]
+  );
+  const byCountry = new Map();
+  const bucket = (c) => {
+    if (!byCountry.has(c.name)) {
+      byCountry.set(c.name, {
+        name: c.name, flag: c.flag, country_km2: c.areaKm2,
+        tiles: 0, area_km2: 0, km: 0, activities: 0,
+      });
+    }
+    return byCountry.get(c.name);
+  };
+  for (const t of tiles) {
+    const c = countryOf(...tileCenter(t.x, t.y, t.z));
+    if (!c) continue;
+    const b = bucket(c);
+    b.tiles++;
+    b.area_km2 += tileAreaKm2(t.x, t.y, t.z);
+  }
+  // km par pays : chaque activité est rattachée au pays de son point de départ
+  const { rows: acts } = await pool.query(
+    `SELECT distance_m, polyline FROM activities
+     WHERE athlete_id=$1 AND polyline IS NOT NULL`,
+    [req.athleteId]
+  );
+  for (const a of acts) {
+    const start = decodePolyline(a.polyline)[0];
+    if (!start) continue;
+    const c = countryOf(start[1], start[0]);
+    if (!c) continue;
+    const b = bucket(c);
+    b.km += (a.distance_m || 0) / 1000;
+    b.activities++;
+  }
+  const out = [...byCountry.values()]
+    .map((c) => ({ ...c, pct: (100 * c.area_km2) / c.country_km2 }))
+    .sort((a, b) => b.pct - a.pct);
+  res.json(out);
 });
 
 // Classement global joueurs : top 10 + ta position, en % du leader

@@ -31,6 +31,38 @@
     z-index: 10;
   }
   .head { display: flex; align-items: center; gap: 10px; }
+  #countries-btn {
+    margin-left: auto; width: 34px; height: 34px; border-radius: 50%;
+    border: 1px solid var(--line); background: #fff; font-size: 17px;
+    cursor: pointer; display: none; flex: none;
+  }
+  #countries-modal {
+    position: fixed; inset: 0; z-index: 50; display: none;
+    background: rgba(16,32,28,.45); backdrop-filter: blur(2px);
+  }
+  #countries-card {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    width: min(420px, calc(100vw - 32px)); max-height: 80vh; overflow-y: auto;
+    background: var(--panel); border-radius: 14px; padding: 18px;
+    border: 1px solid var(--line);
+  }
+  #countries-card h2 { font-size: 15px; }
+  #countries-card .close { float: right; border: 0; background: none; font-size: 18px; cursor: pointer; color: var(--muted); }
+  .country-row { padding: 9px 0; border-top: 1px solid var(--line); font-size: 13.5px; }
+  .country-row:first-of-type { border-top: 0; margin-top: 8px; }
+  .country-line { display: flex; gap: 8px; align-items: baseline; }
+  .country-line .who { flex: 1; }
+  .country-line .val { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .country-bar { height: 5px; background: rgba(16,32,28,.08); border-radius: 3px; margin-top: 6px; overflow: hidden; }
+  .country-bar div { height: 100%; background: var(--brand); border-radius: 3px; }
+  #main-zone {
+    margin-top: 12px; padding: 10px 12px; background: rgba(15,110,86,.08);
+    border-radius: 10px; font-size: 13px; display: flex; gap: 8px; align-items: center;
+  }
+  #main-zone button {
+    margin-left: auto; border: 0; background: var(--brand); color: #fff;
+    padding: 6px 12px; border-radius: 8px; font-size: 12px; cursor: pointer; flex: none;
+  }
   .head img { width: 36px; height: 36px; border-radius: 50%; background: #dde5e0; }
   .head b { font-size: 15px; display: block; }
   .head span { font-size: 12.5px; color: var(--muted); }
@@ -114,6 +146,7 @@
   <div class="head">
     <img id="avatar" alt="">
     <div><b id="name">Territoires</b><span id="subtitle">Chaque sortie capture des cases.</span></div>
+    <button id="countries-btn" title="Mes pays">🌍</button>
   </div>
 
   <div id="chips"></div>
@@ -171,6 +204,18 @@
   </div>
 
   <button id="logout" style="display:none">déconnexion</button>
+</div>
+
+<div id="countries-modal">
+  <div id="countries-card">
+    <button class="close" id="countries-close">✕</button>
+    <h2>🌍 Mes pays</h2>
+    <div id="main-zone" style="display:none">
+      <span id="main-zone-label">Zone principale : …</span>
+      <button id="main-zone-go">Y aller</button>
+    </div>
+    <div id="countries-rows"></div>
+  </div>
 </div>
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
@@ -357,29 +402,7 @@ async function refreshMap() {
   applyFilter();
   if (firstFit && tiles.features.length) {
     firstFit = false;
-    // Zoom initial sur la zone la plus dense (et ses abords), pas sur
-    // l'enveloppe de tout l'historique : un séjour lointain ne doit pas
-    // dézoomer la carte au point de ne plus rien voir.
-    const CELL = 0.7; // ~70 km
-    const buckets = new Map();
-    const cellOf = (f) => {
-      const [lng, lat] = f.geometry.coordinates[0][0];
-      return [Math.floor(lng / CELL), Math.floor(lat / CELL)];
-    };
-    for (const f of tiles.features) {
-      const k = cellOf(f).join(":");
-      buckets.set(k, (buckets.get(k) || 0) + 1);
-    }
-    let bx = 0, by = 0, bestN = 0;
-    for (const [k, n] of buckets) {
-      if (n > bestN) { bestN = n; [bx, by] = k.split(":").map(Number); }
-    }
-    const b = new maplibregl.LngLatBounds();
-    for (const f of tiles.features) {
-      const [kx, ky] = cellOf(f);
-      if (Math.abs(kx - bx) <= 1 && Math.abs(ky - by) <= 1)
-        f.geometry.coordinates[0].forEach((c) => b.extend(c));
-    }
+    const b = denseBounds(tiles.features);
     const doFit = () =>
       map.fitBounds(b, {
         padding: { top: 70, right: 70, bottom: 70, left: innerWidth > 700 ? 400 : 70 },
@@ -390,6 +413,33 @@ async function refreshMap() {
     doFit();
     if (!styleReady) map.once("load", doFit);
   }
+}
+
+// Zone la plus dense (et ses abords) : cellule ~70 km la plus fournie.
+// Utilisée pour le zoom initial et le bouton "Y aller" du menu pays —
+// un séjour lointain ne doit pas dézoomer la carte au point de ne rien voir.
+function denseBounds(features) {
+  const CELL = 0.7;
+  const buckets = new Map();
+  const cellOf = (f) => {
+    const [lng, lat] = f.geometry.coordinates[0][0];
+    return [Math.floor(lng / CELL), Math.floor(lat / CELL)];
+  };
+  for (const f of features) {
+    const k = cellOf(f).join(":");
+    buckets.set(k, (buckets.get(k) || 0) + 1);
+  }
+  let bx = 0, by = 0, bestN = 0;
+  for (const [k, n] of buckets) {
+    if (n > bestN) { bestN = n; [bx, by] = k.split(":").map(Number); }
+  }
+  const b = new maplibregl.LngLatBounds();
+  for (const f of features) {
+    const [kx, ky] = cellOf(f);
+    if (Math.abs(kx - bx) <= 1 && Math.abs(ky - by) <= 1)
+      f.geometry.coordinates[0].forEach((c) => b.extend(c));
+  }
+  return b;
 }
 
 // Rangs façon ligues classées : le "pourcentage" devient une progression
@@ -610,6 +660,7 @@ async function boot() {
   $("period-tabs").style.display = "flex";
   $("period-year").textContent = String(new Date().getFullYear());
   $("share").style.display = "block";
+  $("countries-btn").style.display = "block";
   refreshRanking();
   $("name").textContent = `${me.firstname} ${me.lastname ?? ""}`;
   $("subtitle").textContent = "Ta carte de conquête";
@@ -617,6 +668,57 @@ async function boot() {
   refreshClan();
   poll();
 }
+
+// --- Menu "Mes pays" : score par pays + zone principale ---
+function fmtPct(p) {
+  if (p >= 1) return `${(Math.round(p * 10) / 10).toLocaleString("fr-FR")} %`;
+  if (p >= 0.01) return `${(Math.round(p * 100) / 100).toLocaleString("fr-FR")} %`;
+  return "< 0,01 %";
+}
+
+async function openCountries() {
+  $("countries-modal").style.display = "block";
+  $("countries-rows").innerHTML = '<div class="lb-sep">Calcul en cours…</div>';
+
+  // Zone principale : cluster le plus dense + nom via Nominatim
+  if (tilesData.features.length) {
+    const b = denseBounds(tilesData.features);
+    const c = b.getCenter();
+    $("main-zone").style.display = "flex";
+    $("main-zone-label").textContent = "Zone principale : …";
+    $("main-zone-go").onclick = () => {
+      $("countries-modal").style.display = "none";
+      map.fitBounds(b, { padding: 70, maxZoom: 12 });
+    };
+    fetch(`https://nominatim.openstreetmap.org/reverse?lat=${c.lat}&lon=${c.lng}&format=json&zoom=10&accept-language=fr`)
+      .then((r) => r.json())
+      .then((j) => {
+        const a = j.address || {};
+        const place = a.city || a.town || a.village || a.municipality || a.county || "";
+        $("main-zone-label").textContent =
+          `Zone principale : ${[place, a.country].filter(Boolean).join(", ") || "—"}`;
+      })
+      .catch(() => ($("main-zone-label").textContent = "Zone principale"));
+  }
+
+  const rows = (await api("/api/countries")) || [];
+  $("countries-rows").innerHTML = rows.length
+    ? rows.map((c) => `
+      <div class="country-row">
+        <div class="country-line">
+          <span>${c.flag || "🏳️"}</span>
+          <span class="who">${c.name}</span>
+          <span class="val">${Math.round(c.km).toLocaleString("fr-FR")} km · ${c.tiles.toLocaleString("fr-FR")} cases · ${fmtPct(c.pct)}</span>
+        </div>
+        <div class="country-bar"><div style="width:${Math.max(0.5, Math.min(100, c.pct))}%"></div></div>
+      </div>`).join("")
+    : '<div class="lb-sep">Aucune case pour l\'instant</div>';
+}
+$("countries-btn").onclick = openCountries;
+$("countries-close").onclick = () => ($("countries-modal").style.display = "none");
+$("countries-modal").onclick = (e) => {
+  if (e.target === $("countries-modal")) $("countries-modal").style.display = "none";
+};
 
 // --- Image de partage : carte + stats + rang, format story 4:5 ---
 async function shareCard() {
