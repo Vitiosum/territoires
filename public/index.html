@@ -852,11 +852,13 @@ function rebuildTraceCells() {
 // ait été bouclé en une sortie ou réparti sur plusieurs. Grille 2^16
 // (~350 m) : assez fine pour remplir une boucle de quelques km, assez
 // grossière pour couvrir une région sans exploser la mémoire.
-const CONQUEST_N = 65536; // 2^16
+const CONQUEST_N = 32768; // 2^15, ~1 km à nos latitudes
 // Rayon de fermeture morphologique (en cellules) : de vraies traces GPS
-// laissent des brèches aux jonctions ; on les bouche (jusqu'à ~2×R×350 m
-// ≈ 2,8 km) avant le flood fill, sinon l'extérieur fuit et rien ne se remplit.
-const CONQUEST_CLOSE = 4;
+// laissent de larges brèches aux jonctions ; on les bouche (jusqu'à ~2×R
+// cellules ≈ 12 km) avant le flood fill, sinon l'extérieur fuit et rien ne
+// se remplit. Plafonné à 6 : au-delà, l'érosion détruit les anneaux fins ou
+// comble les petites boucles.
+const CONQUEST_CLOSE = 6;
 
 // Dilatation / érosion (élément carré) ; la fermeture = dilater puis éroder
 // bouche les trous ≤ 2R sans agrandir la forme globale.
