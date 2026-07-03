@@ -500,16 +500,6 @@ async function refreshStats() {
   $("s-acts").textContent = s.activities.toLocaleString("fr-FR");
   $("s-km").textContent = Math.round(s.distance_m / 1000).toLocaleString("fr-FR");
 
-  if (s.period) {
-    // Vue période : les compteurs suivent, la ligne km² aussi ;
-    // le rang reste celui de la carrière (calculé en vue "Tout").
-    const km2p = Math.round(s.area_km2 || 0);
-    const eqp = equivalence(km2p);
-    $("equiv").textContent = km2p >= 1
-      ? `${km2p.toLocaleString("fr-FR")} km² conquis en ${s.period.slice(0, 4)}${eqp ? " · " + eqp : ""}`
-      : "";
-    return;
-  }
   lastStats = s;
 
   let lvl = 0;
@@ -532,8 +522,9 @@ async function refreshStats() {
   }
   const km2 = Math.round(s.area_km2 || 0);
   const eq = equivalence(km2);
+  const quand = s.period ? ` en ${s.period.slice(0, 4)}` : "";
   $("equiv").textContent = km2 >= 1
-    ? `${km2.toLocaleString("fr-FR")} km² conquis${eq ? " · " + eq : ""}`
+    ? `${km2.toLocaleString("fr-FR")} km² conquis${quand}${eq ? " · " + eq : ""}`
     : "";
   $("level").style.display = "block";
 }
