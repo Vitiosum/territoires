@@ -285,38 +285,40 @@ let styleReady = false;
 // L'UI (session, stats, données) ne doit pas dépendre du fond de carte :
 // on ne branche ici que les couches, boot() est lancé indépendamment.
 map.on("load", () => {
+  // "tiles" : les cases carrées, invisibles, uniquement pour le clic.
+  // "zones" : les contours arrondis colorés par groupe de sports.
+  // "fog" : le voile mondial percé des zones révélées.
   map.addSource("tiles", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
-  // Brouillard de guerre : un voile couvre le monde, chaque case conquise
-  // y perce un trou et révèle la carte en dessous.
+  map.addSource("zones", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
   map.addSource("fog", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+
+  map.addLayer({
+    id: "zones-fill", type: "fill", source: "zones",
+    filter: ["!=", ["get", "hybrid"], true],
+    paint: { "fill-color": ["get", "color"], "fill-opacity": 0.34 },
+  });
+  // Zones multi-sports : damier avec la couleur de chaque discipline
+  map.addLayer({
+    id: "zones-hybrid", type: "fill", source: "zones",
+    filter: ["==", ["get", "hybrid"], true],
+    paint: { "fill-pattern": ["get", "pattern"], "fill-opacity": 0.55 },
+  });
+  map.addLayer({
+    id: "zones-line", type: "line", source: "zones",
+    paint: {
+      "line-color": ["get", "color"],
+      "line-width": 1.2,
+      "line-opacity": 0.7,
+    },
+  });
   map.addLayer({
     id: "fog-fill", type: "fill", source: "fog",
     paint: { "fill-color": "#aeb7b3", "fill-opacity": 0.72 },
   });
+  // couche d'interaction : quasi invisible mais cliquable
   map.addLayer({
     id: "tiles-fill", type: "fill", source: "tiles",
-    filter: ["!=", ["get", "hybrid"], true],
-    paint: {
-      "fill-color": ["get", "color"],
-      "fill-opacity": 0.34,
-    },
-  });
-  // Cases multi-sports : damier avec la couleur de chaque discipline
-  map.addLayer({
-    id: "tiles-fill-hybrid", type: "fill", source: "tiles",
-    filter: ["==", ["get", "hybrid"], true],
-    paint: {
-      "fill-pattern": ["get", "pattern"],
-      "fill-opacity": 0.55,
-    },
-  });
-  map.addLayer({
-    id: "tiles-line", type: "line", source: "tiles",
-    paint: {
-      "line-color": ["case", ["get", "hybrid"], "#10201c", ["get", "color"]],
-      "line-width": ["case", ["get", "hybrid"], 1.4, 0.6],
-      "line-opacity": ["case", ["get", "hybrid"], 0.75, 0.6],
-    },
+    paint: { "fill-color": "#000", "fill-opacity": 0.02 },
   });
   // Clic sur une case : détail des disciplines (lisibilité du damier)
   const showTilePopup = (e) => {
@@ -335,7 +337,6 @@ map.on("load", () => {
       .setLngLat(e.lngLat).setHTML(html).addTo(map);
   };
   map.on("click", "tiles-fill", showTilePopup);
-  map.on("click", "tiles-fill-hybrid", showTilePopup);
   map.on("mouseenter", "tiles-fill", () => (map.getCanvas().style.cursor = "pointer"));
   map.on("mouseleave", "tiles-fill", () => (map.getCanvas().style.cursor = ""));
 
@@ -351,8 +352,8 @@ let fogMode = true;
 function applyViewMode() {
   if (!styleReady) return;
   map.setLayoutProperty("fog-fill", "visibility", fogMode ? "visible" : "none");
-  map.setPaintProperty("tiles-fill", "fill-opacity", fogMode ? 0.03 : 0.34);
-  map.setPaintProperty("tiles-fill-hybrid", "fill-opacity", fogMode ? 0.05 : 0.55);
+  for (const id of ["zones-fill", "zones-hybrid", "zones-line"])
+    map.setLayoutProperty(id, "visibility", fogMode ? "none" : "visible");
 }
 
 async function api(path, opts) {
@@ -423,22 +424,27 @@ function applyFilter() {
   // avec plusieurs sports visibles, elle passe en damier multi-couleurs.
   // Les enclaves (encerclées, ex. lacs) sont toujours visibles, en neutre.
   const features = [];
+  const groups = new Map(); // clé de rendu -> cases du groupe
   for (const f of tilesData.features) {
+    let key;
     if (f.properties.enclave) {
       f.properties.color = "#8fb8a8";
       f.properties.hybrid = false;
       f.properties.pattern = "";
-      features.push(f);
-      continue;
+      key = "__enclave";
+    } else {
+      const sports = (f.properties.sports || [f.properties.sport])
+        .filter((s) => !hiddenSports.has(s))
+        .sort();
+      if (!sports.length) continue;
+      f.properties.color = colorFor(sports[0]);
+      f.properties.hybrid = sports.length > 1;
+      f.properties.pattern = sports.length > 1 ? ensurePattern(sports) : "";
+      key = sports.join("|");
     }
-    const sports = (f.properties.sports || [f.properties.sport])
-      .filter((s) => !hiddenSports.has(s))
-      .sort();
-    if (!sports.length) continue;
-    f.properties.color = colorFor(sports[0]);
-    f.properties.hybrid = sports.length > 1;
-    f.properties.pattern = sports.length > 1 ? ensurePattern(sports) : "";
     features.push(f);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(f);
   }
   map.getSource("tiles")?.setData({ type: "FeatureCollection", features });
   map.getSource("fog")?.setData({
@@ -446,15 +452,26 @@ function applyFilter() {
     properties: {},
     geometry: fogGeometry(features),
   });
+  // Zones colorées : mêmes contours arrondis que le brouillard, un
+  // polygone par groupe de sports (damier conservé pour les hybrides)
+  const zoneFeatures = [];
+  for (const feats of groups.values()) {
+    const p = feats[0].properties;
+    zoneFeatures.push({
+      type: "Feature",
+      properties: { color: p.color, hybrid: p.hybrid, pattern: p.pattern },
+      geometry: zoneGeometry(feats),
+    });
+  }
+  map.getSource("zones")?.setData({ type: "FeatureCollection", features: zoneFeatures });
 }
 
-// Brouillard aux contours arrondis : on trace le contour de l'union des
-// cases révélées sur la grille, puis on l'adoucit (lissage de Chaikin)
-// avant de le percer dans le voile — rendu organique façon "fog of war",
-// plus des carrés bruts.
-function fogGeometry(features) {
-  const WORLD = [[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]];
-  if (!features.length) return { type: "MultiPolygon", coordinates: [[WORLD]] };
+// Contours arrondis d'un ensemble de cases : on trace le contour de
+// l'union sur la grille, puis on l'adoucit (lissage de Chaikin).
+// Renvoie { outers, pockets } : contours extérieurs et poches intérieures.
+// Sert au brouillard comme aux zones colorées — plus de carrés nulle part.
+function roundedRings(features) {
+  if (!features.length) return { outers: [], pockets: [] };
   const n = 16384; // 2^14 (zoom des tuiles)
 
   // retrouve les indices de grille de chaque case depuis son coin NW
@@ -524,21 +541,52 @@ function fogGeometry(features) {
     (Math.atan(Math.sinh(Math.PI * (1 - (2 * gy) / n))) * 180) / Math.PI,
   ];
 
-  const holes = [], islands = [];
+  const outers = [], pockets = [];
   for (const lp of loops) {
-    let a = 0; // aire signée en espace grille : <0 = contour révélé, >0 = poche de brouillard
+    let a = 0; // aire signée en espace grille : <0 = contour extérieur, >0 = poche
     for (let i = 0; i < lp.length; i++) {
       const p = lp[i], q = lp[(i + 1) % lp.length];
       a += p[0] * q[1] - q[0] * p[1];
     }
     const ring = smooth(lp).map(toLngLat);
     ring.push(ring[0]);
-    (a < 0 ? holes : islands).push(ring);
+    (a < 0 ? outers : pockets).push(ring);
   }
+  return { outers, pockets };
+}
+
+// Voile mondial : troué des contours extérieurs, les poches redeviennent
+// des îlots de brouillard indépendants
+function fogGeometry(features) {
+  const WORLD = [[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]];
+  const { outers, pockets } = roundedRings(features);
   return {
     type: "MultiPolygon",
-    coordinates: [[WORLD, ...holes], ...islands.map((r) => [r])],
+    coordinates: [[WORLD, ...outers], ...pockets.map((r) => [r])],
   };
+}
+
+// Zones colorées : chaque contour extérieur devient un polygone, ses
+// poches intérieures lui sont rattachées comme trous
+function zoneGeometry(features) {
+  const { outers, pockets } = roundedRings(features);
+  const polys = outers.map((o) => [o]);
+  for (const p of pockets) {
+    const [px, py] = p[0];
+    const host = polys.find((poly) => pointInRing(px, py, poly[0]));
+    if (host) host.push(p);
+  }
+  return { type: "MultiPolygon", coordinates: polys };
+}
+
+function pointInRing(x, y, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i], [xj, yj] = ring[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi)
+      inside = !inside;
+  }
+  return inside;
 }
 
 let periodSince = null; // null = tout l'historique, sinon "YYYY-MM-DD"

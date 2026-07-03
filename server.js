@@ -171,7 +171,14 @@ app.get("/api/countries", requireAuth, async (req, res) => {
   };
   for (const t of tiles) {
     const center = tileCenter(t.x, t.y, t.z);
-    const c = countryOf(...center);
+    let c = countryOf(...center);
+    if (!c) {
+      // case côtière : le centre tombe "en mer", on tente les coins
+      for (const corner of tileToPolygon(t.x, t.y, t.z)[0].slice(0, 4)) {
+        c = countryOf(corner[0], corner[1]);
+        if (c) break;
+      }
+    }
     if (!c) continue;
     const b = bucket(c);
     b.tiles++;
@@ -192,9 +199,14 @@ app.get("/api/countries", requireAuth, async (req, res) => {
     [req.athleteId]
   );
   for (const a of acts) {
-    const start = decodePolyline(a.polyline)[0];
-    if (!start) continue;
-    const c = countryOf(start[1], start[0]);
+    const pts = decodePolyline(a.polyline);
+    if (!pts.length) continue;
+    // départ, milieu puis fin : robuste aux départs côtiers ou en mer
+    let c = null;
+    for (const i of [0, Math.floor(pts.length / 2), pts.length - 1]) {
+      c = countryOf(pts[i][1], pts[i][0]);
+      if (c) break;
+    }
     if (!c) continue;
     const b = bucket(c);
     b.km += (a.distance_m || 0) / 1000;
