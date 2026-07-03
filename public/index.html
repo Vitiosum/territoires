@@ -49,8 +49,11 @@
     color: #fff; background: #fc4c02; border: 0; border-radius: 10px; cursor: pointer;
   }
   #level { margin-top: 12px; display: none; }
-  #level .lvl-top { display: flex; align-items: baseline; justify-content: space-between; }
-  #level .lvl-top b { font-size: 13.5px; color: #085041; }
+  #level .lvl-top { display: flex; align-items: center; justify-content: space-between; }
+  #level .lvl-top b {
+    font-size: 12.5px; color: #fff; background: var(--brand);
+    padding: 3px 10px; border-radius: 99px; letter-spacing: .02em;
+  }
   #level .lvl-top span { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
   #level .bar { height: 6px; background: rgba(16,32,28,.1); border-radius: 3px; overflow: hidden; margin-top: 5px; }
   #level .fill { height: 100%; width: 0%; background: var(--brand); transition: width .6s ease; }
@@ -83,6 +86,24 @@
     padding: 9px 12px; font-size: 12.5px; border-radius: 8px; border: 0;
     background: var(--brand); color: #fff; cursor: pointer; margin-top: 6px;
   }
+  #ranking { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; display: none; }
+  #ranking h2 { font-size: 13.5px; font-weight: 600; }
+  .lb-row { padding: 7px 0 9px; border-top: 1px solid var(--line); font-size: 13px; }
+  .lb-row:first-of-type { border-top: 0; }
+  .lb-line { display: flex; gap: 8px; align-items: baseline; }
+  .lb-line .rank { color: var(--muted); font-size: 12px; width: 18px; }
+  .lb-line .who { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lb-line .val { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+  .lb-bar { height: 4px; background: rgba(16,32,28,.08); border-radius: 2px; margin-top: 5px; overflow: hidden; }
+  .lb-bar div { height: 100%; background: var(--brand); border-radius: 2px; }
+  .lb-row.me .who, .lb-row.me .val { font-weight: 600; color: #085041; }
+  .lb-sep { text-align: center; color: var(--muted); font-size: 12px; padding: 2px 0; }
+  button.share {
+    width: 100%; margin-top: 12px; padding: 11px; font-size: 14px; font-weight: 600;
+    color: #fff; background: var(--brand); border: 0; border-radius: 10px; cursor: pointer; display: none;
+  }
+  .maplibregl-popup-content { font: 13px ui-sans-serif, system-ui; border-radius: 10px; padding: 10px 12px; }
+  .pop-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
   #logout { all: unset; display: block; margin-top: 10px; font-size: 12px; color: var(--muted); cursor: pointer; text-decoration: underline; }
 </style>
 </head>
@@ -113,6 +134,17 @@
     <div class="bar"><div class="fill" id="lvl-fill"></div></div>
     <p id="equiv"></p>
   </div>
+
+  <div id="ranking">
+    <h2>Classement</h2>
+    <div class="tabs">
+      <button id="lb-players" class="on">Joueurs</button>
+      <button id="lb-clans">Clans</button>
+    </div>
+    <div id="lb-rows"></div>
+  </div>
+
+  <button class="share" id="share">Partager ma carte</button>
 
   <div id="progress">
     <div class="bar"><div class="fill" id="fill"></div></div>
@@ -153,6 +185,7 @@ const map = new maplibregl.Map({
   container: "map",
   center: [2.2, 47.0],
   zoom: 5.3,
+  preserveDrawingBuffer: true, // nécessaire pour "Partager ma carte"
   style: {
     version: 8,
     sources: {
@@ -202,6 +235,27 @@ map.on("load", () => {
       "line-opacity": ["case", ["get", "hybrid"], 0.75, 0.6],
     },
   });
+  // Clic sur une case : détail des disciplines (lisibilité du damier)
+  const showTilePopup = (e) => {
+    const p = e.features[0].properties;
+    let html;
+    if (p.enclave) {
+      html = '<b>Enclave</b><br><span style="color:#5c6b66">Encerclée par ton territoire, comptée conquise</span>';
+    } else {
+      const sports = typeof p.sports === "string" ? JSON.parse(p.sports) : p.sports;
+      html = "<b>" + (sports.length > 1 ? "Case hybride" : "Case conquise") + "</b><br>" +
+        sports.map((s) =>
+          `<span class="pop-dot" style="background:${colorFor(s)}"></span>${s}`
+        ).join("<br>");
+    }
+    new maplibregl.Popup({ closeButton: false, maxWidth: "220px" })
+      .setLngLat(e.lngLat).setHTML(html).addTo(map);
+  };
+  map.on("click", "tiles-fill", showTilePopup);
+  map.on("click", "tiles-fill-hybrid", showTilePopup);
+  map.on("mouseenter", "tiles-fill", () => (map.getCanvas().style.cursor = "pointer"));
+  map.on("mouseleave", "tiles-fill", () => (map.getCanvas().style.cursor = ""));
+
   styleReady = true;
   applyFilter();
 });
@@ -309,13 +363,13 @@ async function refreshMap() {
   }
 }
 
-// Paliers d'explorateur : le "pourcentage" devient une progression vers
-// le prochain niveau, jamais un 0,0001 % démotivant.
-const LEVELS = [
-  [0, "Promeneur"], [10, "Randonneur"], [30, "Éclaireur"], [75, "Explorateur"],
-  [150, "Aventurier"], [300, "Pionnier"], [600, "Conquérant"], [1200, "Cartographe"],
-  [2500, "Grand Cartographe"], [5000, "Seigneur des cases"],
-  [10000, "Maître du territoire"], [20000, "Légende"],
+// Rangs façon ligues classées : le "pourcentage" devient une progression
+// vers le prochain rang, jamais un 0,0001 % démotivant.
+const TIERS = [
+  [0, "Fer", "#7d8590"], [10, "Bronze", "#b0793f"], [30, "Argent", "#8fa3b4"],
+  [75, "Or", "#d4a017"], [150, "Platine", "#2fb5a8"], [300, "Émeraude", "#1e9e4f"],
+  [600, "Diamant", "#4f9cf0"], [1200, "Maître", "#8e3ae2"], [2500, "Grand Maître", "#d61f69"],
+  [5000, "Conquérant", "#e23a3a"], [10000, "Empereur", "#f5a623"], [20000, "Légende", "#10201c"],
 ];
 
 // Équivalence de surface parlante, à l'échelle qui a du sens
@@ -332,25 +386,32 @@ function equivalence(km2) {
   return `≈ ${n.toLocaleString("fr-FR")} × ${unit[0]}`;
 }
 
+let lastStats = null; // pour l'image de partage
+
 async function refreshStats() {
   const s = await api("/api/stats");
   if (!s) return;
+  lastStats = s;
   $("s-tiles").textContent = s.tiles.toLocaleString("fr-FR");
   $("s-acts").textContent = s.activities.toLocaleString("fr-FR");
   $("s-km").textContent = Math.round(s.distance_m / 1000).toLocaleString("fr-FR");
 
   let lvl = 0;
-  while (lvl + 1 < LEVELS.length && s.tiles >= LEVELS[lvl + 1][0]) lvl++;
-  const cur = LEVELS[lvl];
-  const next = LEVELS[lvl + 1];
+  while (lvl + 1 < TIERS.length && s.tiles >= TIERS[lvl + 1][0]) lvl++;
+  const cur = TIERS[lvl];
+  const next = TIERS[lvl + 1];
+  s.tier = cur;
   $("lvl-name").textContent = cur[1];
+  $("lvl-name").style.background = cur[2];
+  const streak = s.streak > 1 ? ` · 🔥 ${s.streak} sem.` : "";
   if (next) {
     $("lvl-count").textContent =
-      `${s.tiles.toLocaleString("fr-FR")} / ${next[0].toLocaleString("fr-FR")} cases`;
+      `${s.tiles.toLocaleString("fr-FR")} / ${next[0].toLocaleString("fr-FR")} cases${streak}`;
     $("lvl-fill").style.width =
       `${Math.round((100 * (s.tiles - cur[0])) / (next[0] - cur[0]))}%`;
+    $("lvl-fill").style.background = cur[2];
   } else {
-    $("lvl-count").textContent = `${s.tiles.toLocaleString("fr-FR")} cases`;
+    $("lvl-count").textContent = `${s.tiles.toLocaleString("fr-FR")} cases${streak}`;
     $("lvl-fill").style.width = "100%";
   }
   const km2 = Math.round(s.area_km2 || 0);
@@ -360,6 +421,49 @@ async function refreshStats() {
     : "";
   $("level").style.display = "block";
 }
+
+// --- Classement global : joueurs et clans, en % du leader ---
+let lbMode = "players";
+
+function lbRow(rank, who, tiles, leaderTiles, isMe) {
+  const pct = leaderTiles ? Math.round((100 * tiles) / leaderTiles) : 0;
+  return `<div class="lb-row${isMe ? " me" : ""}">
+    <div class="lb-line">
+      <span class="rank">${rank}</span>
+      <span class="who">${who}</span>
+      <span class="val">${tiles.toLocaleString("fr-FR")} · ${pct} %</span>
+    </div>
+    <div class="lb-bar"><div style="width:${pct}%"></div></div>
+  </div>`;
+}
+
+async function refreshRanking() {
+  if (lbMode === "clans") {
+    const rows = (await api("/api/leaderboard/clans")) || [];
+    $("lb-rows").innerHTML = rows.length
+      ? rows.map((c, i) =>
+          lbRow(i + 1, `${c.name} (${c.members})`, c.tiles, rows[0].tiles, false)
+        ).join("")
+      : '<div class="lb-sep">Aucun clan pour l\'instant</div>';
+  } else {
+    const lb = await api("/api/leaderboard");
+    if (!lb) return;
+    const leader = lb.top[0]?.tiles || 0;
+    let html = lb.top.map((p, i) =>
+      lbRow(i + 1, `${p.firstname} ${p.lastname ?? ""}`.trim(), p.tiles, leader,
+        lb.me && Number(p.id) === Number(lb.me.id))
+    ).join("");
+    if (lb.me && lb.me.rank > lb.top.length) {
+      html += `<div class="lb-sep">…</div>` +
+        lbRow(lb.me.rank, `${lb.me.firstname} ${lb.me.lastname ?? ""}`.trim(), lb.me.tiles, leader, true);
+    }
+    $("lb-rows").innerHTML = html;
+  }
+  $("ranking").style.display = "block";
+}
+
+$("lb-players").onclick = () => { lbMode = "players"; $("lb-players").classList.add("on"); $("lb-clans").classList.remove("on"); refreshRanking(); };
+$("lb-clans").onclick = () => { lbMode = "clans"; $("lb-clans").classList.add("on"); $("lb-players").classList.remove("on"); refreshRanking(); };
 
 async function refreshClan() {
   const clan = await api("/api/clans/me");
@@ -449,7 +553,7 @@ async function poll() {
   } else if (syncing) {
     $("progress-label").textContent = "Récupération de la liste des activités…";
   }
-  await Promise.all([refreshStats(), refreshMap(), refreshSports()]);
+  await Promise.all([refreshStats(), refreshMap(), refreshSports(), refreshRanking()]);
   if (syncing) pollTimer = setTimeout(poll, 8000);
 }
 
@@ -463,12 +567,79 @@ async function boot() {
   $("logout").style.display = "block";
   $("period-tabs").style.display = "flex";
   $("period-year").textContent = String(new Date().getFullYear());
+  $("share").style.display = "block";
+  refreshRanking();
   $("name").textContent = `${me.firstname} ${me.lastname ?? ""}`;
   $("subtitle").textContent = "Ta carte de conquête";
   if (me.profile && me.profile.startsWith("http")) $("avatar").src = me.profile;
   refreshClan();
   poll();
 }
+
+// --- Image de partage : carte + stats + rang, format story 4:5 ---
+async function shareCard() {
+  if (!lastStats) return;
+  const s = lastStats;
+  const src = map.getCanvas();
+  const W = 1080, H = 1350;
+  const c = document.createElement("canvas");
+  c.width = W; c.height = H;
+  const ctx = c.getContext("2d");
+
+  const scale = Math.max(W / src.width, H / src.height);
+  ctx.drawImage(src, (W - src.width * scale) / 2, (H - src.height * scale) / 2,
+    src.width * scale, src.height * scale);
+
+  const g = ctx.createLinearGradient(0, H * 0.5, 0, H);
+  g.addColorStop(0, "rgba(16,32,28,0)");
+  g.addColorStop(1, "rgba(16,32,28,0.94)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  const name = $("name").textContent.trim();
+  const tier = s.tier || TIERS[0];
+  ctx.fillStyle = "#fff";
+  ctx.font = "700 58px ui-sans-serif, system-ui";
+  ctx.fillText(name, 60, H - 260);
+
+  // badge de rang
+  ctx.font = "600 34px ui-sans-serif, system-ui";
+  const label = tier[1].toUpperCase();
+  const tw = ctx.measureText(label).width;
+  ctx.fillStyle = tier[2];
+  ctx.beginPath();
+  ctx.roundRect(60, H - 232, tw + 48, 56, 28);
+  ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.fillText(label, 84, H - 193);
+
+  ctx.font = "400 36px ui-sans-serif, system-ui";
+  ctx.fillStyle = "rgba(255,255,255,0.92)";
+  const km2 = Math.round(s.area_km2 || 0);
+  const eq = equivalence(km2);
+  ctx.fillText(
+    `${s.tiles.toLocaleString("fr-FR")} cases · ${km2.toLocaleString("fr-FR")} km²${eq ? " · " + eq : ""}`,
+    60, H - 110
+  );
+  ctx.font = "700 30px ui-sans-serif, system-ui";
+  ctx.fillStyle = "rgba(255,255,255,0.65)";
+  ctx.letterSpacing = "6px";
+  ctx.fillText("TERRITOIRES", 60, H - 52);
+  ctx.letterSpacing = "0px";
+
+  c.toBlob(async (blob) => {
+    const file = new File([blob], "territoires.png", { type: "image/png" });
+    if (navigator.canShare?.({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: "Mes territoires" }); return; } catch {}
+    }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "territoires.png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+}
+$("share").onclick = shareCard;
 
 boot();
 

@@ -97,7 +97,61 @@ app.get("/api/stats", requireAuth, async (req, res) => {
     [req.athleteId]
   );
   const area_km2 = coords.reduce((a, t) => a + tileAreaKm2(t.x, t.y, t.z), 0);
-  res.json({ ...rows[0], area_km2 });
+
+  // Streak : semaines consécutives (en remontant depuis cette semaine)
+  // avec au moins une nouvelle case conquise
+  const { rows: weeks } = await pool.query(
+    `SELECT DISTINCT date_trunc('week', a.start_date)::date AS w
+     FROM tiles t JOIN activities a ON a.id = t.first_activity_id
+     WHERE t.athlete_id=$1 AND a.start_date IS NOT NULL
+     ORDER BY w DESC`,
+    [req.athleteId]
+  );
+  let streak = 0;
+  if (weeks.length) {
+    const MS_WEEK = 7 * 24 * 3600 * 1000;
+    const thisWeek = new Date();
+    thisWeek.setUTCHours(0, 0, 0, 0);
+    thisWeek.setUTCDate(thisWeek.getUTCDate() - ((thisWeek.getUTCDay() + 6) % 7));
+    let expected = thisWeek.getTime();
+    for (const r of weeks) {
+      const w = new Date(r.w).getTime();
+      if (w === expected) { streak++; expected -= MS_WEEK; }
+      else if (w === expected - MS_WEEK && streak === 0) {
+        // la semaine courante n'a pas encore de sortie : le streak tient
+        streak++; expected = w - MS_WEEK;
+      } else break;
+    }
+  }
+  res.json({ ...rows[0], area_km2, streak });
+});
+
+// Classement global joueurs : top 10 + ta position, en % du leader
+app.get("/api/leaderboard", requireAuth, async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT a.id, a.firstname, a.lastname,
+       (SELECT count(*)::int FROM tiles t WHERE t.athlete_id=a.id) AS tiles
+     FROM athletes a
+     ORDER BY tiles DESC, a.id
+     LIMIT 100`
+  );
+  const top = rows.slice(0, 10);
+  const rank = rows.findIndex((r) => Number(r.id) === req.athleteId) + 1;
+  const me = rows.find((r) => Number(r.id) === req.athleteId) || null;
+  res.json({ top, total: rows.length, me: me ? { ...me, rank } : null });
+});
+
+// Classement clans : somme des cases des membres
+app.get("/api/leaderboard/clans", requireAuth, async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT c.id, c.name, count(m.athlete_id)::int AS members,
+       coalesce(sum((SELECT count(*) FROM tiles t WHERE t.athlete_id=m.athlete_id)),0)::int AS tiles
+     FROM clans c LEFT JOIN clan_members m ON m.clan_id = c.id
+     GROUP BY c.id, c.name
+     ORDER BY tiles DESC, c.id
+     LIMIT 10`
+  );
+  res.json(rows);
 });
 
 // Sports réellement présents dans l'historique (pour les chips de filtre)
