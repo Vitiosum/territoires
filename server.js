@@ -148,28 +148,27 @@ app.get("/api/stats", requireAuth, async (req, res) => {
   const area_km2 = coords.reduce((a, t) => a + tileAreaKm2(t.x, t.y, t.z), 0);
 
   // Streak : semaines consécutives (en remontant depuis cette semaine)
-  // avec au moins une nouvelle case conquise
+  // avec au moins une nouvelle case conquise. On compare des dates ISO
+  // (texte) plutôt que des timestamps pour être insensible au fuseau
+  // (le parsing d'une colonne DATE de pg dépendait du TZ du process).
   const { rows: weeks } = await pool.query(
-    `SELECT DISTINCT date_trunc('week', a.start_date)::date AS w
+    `SELECT DISTINCT to_char(date_trunc('week', a.start_date), 'YYYY-MM-DD') AS w
      FROM tiles t JOIN activities a ON a.id = t.first_activity_id
-     WHERE t.athlete_id=$1 AND a.start_date IS NOT NULL
-     ORDER BY w DESC`,
+     WHERE t.athlete_id=$1 AND a.start_date IS NOT NULL`,
     [req.athleteId]
   );
   let streak = 0;
   if (weeks.length) {
-    const MS_WEEK = 7 * 24 * 3600 * 1000;
-    const thisWeek = new Date();
-    thisWeek.setUTCHours(0, 0, 0, 0);
-    thisWeek.setUTCDate(thisWeek.getUTCDate() - ((thisWeek.getUTCDay() + 6) % 7));
-    let expected = thisWeek.getTime();
-    for (const r of weeks) {
-      const w = new Date(r.w).getTime();
-      if (w === expected) { streak++; expected -= MS_WEEK; }
-      else if (w === expected - MS_WEEK && streak === 0) {
-        // la semaine courante n'a pas encore de sortie : le streak tient
-        streak++; expected = w - MS_WEEK;
-      } else break;
+    const have = new Set(weeks.map((r) => r.w));
+    const monday = new Date();
+    monday.setUTCHours(0, 0, 0, 0);
+    monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
+    const iso = (d) => d.toISOString().slice(0, 10);
+    // la semaine en cours peut ne pas encore avoir de sortie sans casser le streak
+    if (!have.has(iso(monday))) monday.setUTCDate(monday.getUTCDate() - 7);
+    while (have.has(iso(monday))) {
+      streak++;
+      monday.setUTCDate(monday.getUTCDate() - 7);
     }
   }
   res.json({ ...rows[0], area_km2, streak });
@@ -360,6 +359,10 @@ app.post("/api/clans", requireAuth, async (req, res) => {
     "INSERT INTO clans (name, invite_code, created_by) VALUES ($1,$2,$3) RETURNING id, name, invite_code",
     [name, code, req.athleteId]
   );
+  // Un athlète n'appartient qu'à un clan à la fois : sinon ses cases
+  // comptent dans chaque clan (classement faussé) et « mon clan » devient
+  // non déterministe. On quitte l'ancien avant de rejoindre le nouveau.
+  await pool.query("DELETE FROM clan_members WHERE athlete_id=$1", [req.athleteId]);
   await pool.query(
     "INSERT INTO clan_members (clan_id, athlete_id) VALUES ($1,$2)",
     [rows[0].id, req.athleteId]
@@ -374,6 +377,7 @@ app.post("/api/clans/join", requireAuth, async (req, res) => {
     [code]
   );
   if (!rows.length) return res.status(404).json({ error: "unknown_code" });
+  await pool.query("DELETE FROM clan_members WHERE athlete_id=$1", [req.athleteId]);
   await pool.query(
     "INSERT INTO clan_members (clan_id, athlete_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
     [rows[0].id, req.athleteId]
@@ -386,7 +390,7 @@ app.get("/api/clans/me", requireAuth, async (req, res) => {
   const { rows: cl } = await pool.query(
     `SELECT c.id, c.name, c.invite_code FROM clans c
      JOIN clan_members m ON m.clan_id = c.id
-     WHERE m.athlete_id=$1 LIMIT 1`,
+     WHERE m.athlete_id=$1 ORDER BY m.joined_at DESC LIMIT 1`,
     [req.athleteId]
   );
   if (!cl.length) return res.json(null);
@@ -454,8 +458,3 @@ process.on("uncaughtException", (e) => console.error("uncaughtException:", e));
 await migrate();
 await resumeInterrupted();
 app.listen(PORT, () => console.log(`Territoires sur :${PORT}`));
-
-// Petit utilitaire pour créer l'abonnement webhook (voir README)
-export function _unused() {
-  crypto.randomBytes(1);
-}
