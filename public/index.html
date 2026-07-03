@@ -357,9 +357,38 @@ async function refreshMap() {
   applyFilter();
   if (firstFit && tiles.features.length) {
     firstFit = false;
+    // Zoom initial sur la zone la plus dense (et ses abords), pas sur
+    // l'enveloppe de tout l'historique : un séjour lointain ne doit pas
+    // dézoomer la carte au point de ne plus rien voir.
+    const CELL = 0.7; // ~70 km
+    const buckets = new Map();
+    const cellOf = (f) => {
+      const [lng, lat] = f.geometry.coordinates[0][0];
+      return [Math.floor(lng / CELL), Math.floor(lat / CELL)];
+    };
+    for (const f of tiles.features) {
+      const k = cellOf(f).join(":");
+      buckets.set(k, (buckets.get(k) || 0) + 1);
+    }
+    let bx = 0, by = 0, bestN = 0;
+    for (const [k, n] of buckets) {
+      if (n > bestN) { bestN = n; [bx, by] = k.split(":").map(Number); }
+    }
     const b = new maplibregl.LngLatBounds();
-    tiles.features.forEach((f) => f.geometry.coordinates[0].forEach((c) => b.extend(c)));
-    map.fitBounds(b, { padding: 60, maxZoom: 12 });
+    for (const f of tiles.features) {
+      const [kx, ky] = cellOf(f);
+      if (Math.abs(kx - bx) <= 1 && Math.abs(ky - by) <= 1)
+        f.geometry.coordinates[0].forEach((c) => b.extend(c));
+    }
+    const doFit = () =>
+      map.fitBounds(b, {
+        padding: { top: 70, right: 70, bottom: 70, left: innerWidth > 700 ? 400 : 70 },
+        maxZoom: 12,
+        animate: false, // cadrage initial : instantané et fiable partout
+      });
+    // cadrage immédiat, puis recadrage au load si le fond arrive après
+    doFit();
+    if (!styleReady) map.once("load", doFit);
   }
 }
 
