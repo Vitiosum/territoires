@@ -441,16 +441,104 @@ function applyFilter() {
     features.push(f);
   }
   map.getSource("tiles")?.setData({ type: "FeatureCollection", features });
-  // Voile mondial percé d'un trou par case visible
-  const WORLD = [[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]];
   map.getSource("fog")?.setData({
     type: "Feature",
     properties: {},
-    geometry: {
-      type: "Polygon",
-      coordinates: [WORLD, ...features.map((f) => f.geometry.coordinates[0])],
-    },
+    geometry: fogGeometry(features),
   });
+}
+
+// Brouillard aux contours arrondis : on trace le contour de l'union des
+// cases révélées sur la grille, puis on l'adoucit (lissage de Chaikin)
+// avant de le percer dans le voile — rendu organique façon "fog of war",
+// plus des carrés bruts.
+function fogGeometry(features) {
+  const WORLD = [[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]];
+  if (!features.length) return { type: "MultiPolygon", coordinates: [[WORLD]] };
+  const n = 16384; // 2^14 (zoom des tuiles)
+
+  // retrouve les indices de grille de chaque case depuis son coin NW
+  const cells = new Set();
+  for (const f of features) {
+    let minLng = Infinity, maxLat = -Infinity;
+    for (const [lng, lat] of f.geometry.coordinates[0]) {
+      if (lng < minLng) minLng = lng;
+      if (lat > maxLat) maxLat = lat;
+    }
+    const x = Math.round(((minLng + 180) / 360) * n);
+    const latR = (maxLat * Math.PI) / 180;
+    const y = Math.round(((1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2) * n);
+    cells.add(x + ":" + y);
+  }
+
+  // arêtes frontières orientées (intérieur révélé à gauche)
+  const edges = new Map();
+  const addEdge = (x1, y1, x2, y2) => {
+    const k = x1 + ":" + y1;
+    if (!edges.has(k)) edges.set(k, []);
+    edges.get(k).push([x2, y2]);
+  };
+  for (const key of cells) {
+    const [x, y] = key.split(":").map(Number);
+    if (!cells.has(x + ":" + (y - 1))) addEdge(x + 1, y, x, y);
+    if (!cells.has(x + ":" + (y + 1))) addEdge(x, y + 1, x + 1, y + 1);
+    if (!cells.has(x - 1 + ":" + y)) addEdge(x, y, x, y + 1);
+    if (!cells.has(x + 1 + ":" + y)) addEdge(x + 1, y + 1, x + 1, y);
+  }
+
+  // chaînage des arêtes en boucles fermées
+  const loops = [];
+  for (const start of edges.keys()) {
+    for (;;) {
+      const first = edges.get(start);
+      if (!first || !first.length) break;
+      const loop = [];
+      let [cx, cy] = start.split(":").map(Number);
+      for (;;) {
+        const outs = edges.get(cx + ":" + cy);
+        if (!outs || !outs.length) break;
+        loop.push([cx, cy]);
+        [cx, cy] = outs.pop();
+        if (cx + ":" + cy === start) break;
+      }
+      if (loop.length >= 4) loops.push(loop);
+    }
+  }
+
+  // lissage de Chaikin, première passe agressive pour un vrai rendu
+  // arrondi (rayon ~40 % de case), puis passes fines ; conversion ensuite
+  const smooth = (pts) => {
+    for (const t of [0.4, 0.25, 0.25]) {
+      const out = [];
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i], b = pts[(i + 1) % pts.length];
+        out.push([a[0] * (1 - t) + b[0] * t, a[1] * (1 - t) + b[1] * t]);
+        out.push([a[0] * t + b[0] * (1 - t), a[1] * t + b[1] * (1 - t)]);
+      }
+      pts = out;
+    }
+    return pts;
+  };
+  const toLngLat = ([gx, gy]) => [
+    (gx / n) * 360 - 180,
+    (Math.atan(Math.sinh(Math.PI * (1 - (2 * gy) / n))) * 180) / Math.PI,
+  ];
+
+  const holes = [], islands = [];
+  for (const lp of loops) {
+    let a = 0; // aire signée en espace grille : <0 = contour révélé, >0 = poche de brouillard
+    for (let i = 0; i < lp.length; i++) {
+      const p = lp[i], q = lp[(i + 1) % lp.length];
+      a += p[0] * q[1] - q[0] * p[1];
+    }
+    const ring = smooth(lp).map(toLngLat);
+    ring.push(ring[0]);
+    (a < 0 ? holes : islands).push(ring);
+  }
+  return {
+    type: "MultiPolygon",
+    coordinates: [[WORLD, ...holes], ...islands.map((r) => [r])],
+  };
 }
 
 let periodSince = null; // null = tout l'historique, sinon "YYYY-MM-DD"
