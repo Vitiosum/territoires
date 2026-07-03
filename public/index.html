@@ -176,6 +176,11 @@
     <button id="period-year">Cette année</button>
   </div>
 
+  <div class="tabs" id="view-tabs" style="display:none">
+    <button id="view-fog" class="on">🌫️ Brouillard</button>
+    <button id="view-colors">🎨 Couleurs</button>
+  </div>
+
   <div class="row">
     <div class="stat"><b id="s-tiles">–</b><i>cases</i></div>
     <div class="stat"><b id="s-km">–</b><i>km</i></div>
@@ -281,6 +286,13 @@ let styleReady = false;
 // on ne branche ici que les couches, boot() est lancé indépendamment.
 map.on("load", () => {
   map.addSource("tiles", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  // Brouillard de guerre : un voile couvre le monde, chaque case conquise
+  // y perce un trou et révèle la carte en dessous.
+  map.addSource("fog", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  map.addLayer({
+    id: "fog-fill", type: "fill", source: "fog",
+    paint: { "fill-color": "#aeb7b3", "fill-opacity": 0.72 },
+  });
   map.addLayer({
     id: "tiles-fill", type: "fill", source: "tiles",
     filter: ["!=", ["get", "hybrid"], true],
@@ -328,8 +340,20 @@ map.on("load", () => {
   map.on("mouseleave", "tiles-fill", () => (map.getCanvas().style.cursor = ""));
 
   styleReady = true;
+  applyViewMode();
   applyFilter();
 });
+
+// Mode d'affichage : brouillard (défaut) ou couleurs pleines.
+// Dans le brouillard, les remplissages passent quasi transparents (le clic
+// reste actif) et les bordures colorées gardent l'identité du sport.
+let fogMode = true;
+function applyViewMode() {
+  if (!styleReady) return;
+  map.setLayoutProperty("fog-fill", "visibility", fogMode ? "visible" : "none");
+  map.setPaintProperty("tiles-fill", "fill-opacity", fogMode ? 0.03 : 0.34);
+  map.setPaintProperty("tiles-fill-hybrid", "fill-opacity", fogMode ? 0.05 : 0.55);
+}
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
@@ -417,6 +441,16 @@ function applyFilter() {
     features.push(f);
   }
   map.getSource("tiles")?.setData({ type: "FeatureCollection", features });
+  // Voile mondial percé d'un trou par case visible
+  const WORLD = [[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]];
+  map.getSource("fog")?.setData({
+    type: "Feature",
+    properties: {},
+    geometry: {
+      type: "Polygon",
+      coordinates: [WORLD, ...features.map((f) => f.geometry.coordinates[0])],
+    },
+  });
 }
 
 let periodSince = null; // null = tout l'historique, sinon "YYYY-MM-DD"
@@ -609,6 +643,19 @@ async function refreshClan() {
     .join("");
 }
 
+$("view-fog").onclick = () => {
+  fogMode = true;
+  $("view-fog").classList.add("on");
+  $("view-colors").classList.remove("on");
+  applyViewMode();
+};
+$("view-colors").onclick = () => {
+  fogMode = false;
+  $("view-colors").classList.add("on");
+  $("view-fog").classList.remove("on");
+  applyViewMode();
+};
+
 $("period-all").onclick = () => {
   periodSince = null;
   $("period-all").classList.add("on");
@@ -700,6 +747,7 @@ async function boot() {
   $("connect").style.display = "none";
   $("logout").style.display = "block";
   $("period-tabs").style.display = "flex";
+  $("view-tabs").style.display = "flex";
   $("period-year").textContent = String(new Date().getFullYear());
   $("share").style.display = "block";
   $("countries-btn").style.display = "block";
