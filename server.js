@@ -8,7 +8,7 @@ import {
   enqueueSingleActivity,
   resumeInterrupted,
 } from "./lib/sync.js";
-import { tileToPolygon, tilesForTrack, decodePolyline, ZOOM } from "./lib/tiles.js";
+import { tileToPolygon, tilesForTrack, decodePolyline, tileAreaKm2, ZOOM } from "./lib/tiles.js";
 
 const app = express();
 app.use(express.json());
@@ -92,7 +92,12 @@ app.get("/api/stats", requireAuth, async (req, res) => {
        (SELECT coalesce(sum(distance_m),0) FROM activities WHERE athlete_id=$1) AS distance_m`,
     [req.athleteId]
   );
-  res.json(rows[0]);
+  const { rows: coords } = await pool.query(
+    "SELECT x, y, z FROM tiles WHERE athlete_id=$1",
+    [req.athleteId]
+  );
+  const area_km2 = coords.reduce((a, t) => a + tileAreaKm2(t.x, t.y, t.z), 0);
+  res.json({ ...rows[0], area_km2 });
 });
 
 // Sports réellement présents dans l'historique (pour les chips de filtre)
@@ -141,17 +146,19 @@ app.get("/api/tiles", requireAuth, async (req, res) => {
     });
   }
   const { rows } = await pool.query(
-    "SELECT z, x, y, sport_type, sports FROM tiles WHERE athlete_id=$1",
+    "SELECT z, x, y, sport_type, sports, enclave FROM tiles WHERE athlete_id=$1",
     [req.athleteId]
   );
   res.json({
     type: "FeatureCollection",
     features: rows.map((t) => ({
       type: "Feature",
-      properties: {
-        sport: t.sport_type || "Autre",
-        sports: t.sports?.length ? t.sports : [t.sport_type || "Autre"],
-      },
+      properties: t.enclave
+        ? { enclave: true, sports: [] }
+        : {
+            sport: t.sport_type || "Autre",
+            sports: t.sports?.length ? t.sports : [t.sport_type || "Autre"],
+          },
       geometry: { type: "Polygon", coordinates: tileToPolygon(t.x, t.y, t.z) },
     })),
   });

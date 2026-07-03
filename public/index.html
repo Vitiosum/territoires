@@ -48,6 +48,13 @@
     width: 100%; margin-top: 12px; padding: 12px; font-size: 15px; font-weight: 600;
     color: #fff; background: #fc4c02; border: 0; border-radius: 10px; cursor: pointer;
   }
+  #level { margin-top: 12px; display: none; }
+  #level .lvl-top { display: flex; align-items: baseline; justify-content: space-between; }
+  #level .lvl-top b { font-size: 13.5px; color: #085041; }
+  #level .lvl-top span { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  #level .bar { height: 6px; background: rgba(16,32,28,.1); border-radius: 3px; overflow: hidden; margin-top: 5px; }
+  #level .fill { height: 100%; width: 0%; background: var(--brand); transition: width .6s ease; }
+  #level p { font-size: 12px; color: var(--muted); margin-top: 5px; }
   #progress { margin-top: 10px; display: none; }
   #progress .bar { height: 6px; background: rgba(16,32,28,.1); border-radius: 3px; overflow: hidden; }
   #progress .fill { height: 100%; width: 0%; background: var(--brand); transition: width .6s ease; }
@@ -99,6 +106,12 @@
     <div class="stat"><b id="s-tiles">–</b><i>cases</i></div>
     <div class="stat"><b id="s-km">–</b><i>km</i></div>
     <div class="stat"><b id="s-acts">–</b><i>sorties</i></div>
+  </div>
+
+  <div id="level">
+    <div class="lvl-top"><b id="lvl-name">–</b><span id="lvl-count">–</span></div>
+    <div class="bar"><div class="fill" id="lvl-fill"></div></div>
+    <p id="equiv"></p>
   </div>
 
   <div id="progress">
@@ -259,8 +272,16 @@ function applyFilter() {
   if (!styleReady) return; // rejoué par map.on("load")
   // Une case reste visible tant qu'au moins un de ses sports est affiché ;
   // avec plusieurs sports visibles, elle passe en damier multi-couleurs.
+  // Les enclaves (encerclées, ex. lacs) sont toujours visibles, en neutre.
   const features = [];
   for (const f of tilesData.features) {
+    if (f.properties.enclave) {
+      f.properties.color = "#8fb8a8";
+      f.properties.hybrid = false;
+      f.properties.pattern = "";
+      features.push(f);
+      continue;
+    }
     const sports = (f.properties.sports || [f.properties.sport])
       .filter((s) => !hiddenSports.has(s))
       .sort();
@@ -288,12 +309,56 @@ async function refreshMap() {
   }
 }
 
+// Paliers d'explorateur : le "pourcentage" devient une progression vers
+// le prochain niveau, jamais un 0,0001 % démotivant.
+const LEVELS = [
+  [0, "Promeneur"], [10, "Randonneur"], [30, "Éclaireur"], [75, "Explorateur"],
+  [150, "Aventurier"], [300, "Pionnier"], [600, "Conquérant"], [1200, "Cartographe"],
+  [2500, "Grand Cartographe"], [5000, "Seigneur des cases"],
+  [10000, "Maître du territoire"], [20000, "Légende"],
+];
+
+// Équivalence de surface parlante, à l'échelle qui a du sens
+const AREA_UNITS = [
+  ["Paris", 105], ["la Corse", 8722], ["la Belgique", 30688], ["la France", 543940],
+];
+function equivalence(km2) {
+  if (km2 < 1) return "";
+  let unit = AREA_UNITS[0];
+  for (const u of AREA_UNITS) if (km2 / u[1] >= 0.9) unit = u;
+  const r = km2 / unit[1];
+  if (r < 0.9) return `≈ ${Math.round(r * 100)} % de ${unit[0]}`;
+  const n = r >= 10 ? Math.round(r) : Math.round(r * 10) / 10;
+  return `≈ ${n.toLocaleString("fr-FR")} × ${unit[0]}`;
+}
+
 async function refreshStats() {
   const s = await api("/api/stats");
   if (!s) return;
   $("s-tiles").textContent = s.tiles.toLocaleString("fr-FR");
   $("s-acts").textContent = s.activities.toLocaleString("fr-FR");
   $("s-km").textContent = Math.round(s.distance_m / 1000).toLocaleString("fr-FR");
+
+  let lvl = 0;
+  while (lvl + 1 < LEVELS.length && s.tiles >= LEVELS[lvl + 1][0]) lvl++;
+  const cur = LEVELS[lvl];
+  const next = LEVELS[lvl + 1];
+  $("lvl-name").textContent = cur[1];
+  if (next) {
+    $("lvl-count").textContent =
+      `${s.tiles.toLocaleString("fr-FR")} / ${next[0].toLocaleString("fr-FR")} cases`;
+    $("lvl-fill").style.width =
+      `${Math.round((100 * (s.tiles - cur[0])) / (next[0] - cur[0]))}%`;
+  } else {
+    $("lvl-count").textContent = `${s.tiles.toLocaleString("fr-FR")} cases`;
+    $("lvl-fill").style.width = "100%";
+  }
+  const km2 = Math.round(s.area_km2 || 0);
+  const eq = equivalence(km2);
+  $("equiv").textContent = km2 >= 1
+    ? `${km2.toLocaleString("fr-FR")} km² conquis${eq ? " · " + eq : ""}`
+    : "";
+  $("level").style.display = "block";
 }
 
 async function refreshClan() {
