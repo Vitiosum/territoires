@@ -284,7 +284,10 @@ let styleReady = false;
 
 // L'UI (session, stats, données) ne doit pas dépendre du fond de carte :
 // on ne branche ici que les couches, boot() est lancé indépendamment.
-map.on("load", () => {
+// Init idempotente sur "style.load" ET "load" : le style inline est prêt
+// presque immédiatement, les territoires s'affichent même si OSM traîne.
+const initLayers = () => {
+  if (styleReady) return;
   // "tiles" : les cases carrées, invisibles, uniquement pour le clic.
   // "zones" : les contours arrondis colorés par groupe de sports.
   // "fog" : le voile mondial percé des zones révélées.
@@ -343,7 +346,9 @@ map.on("load", () => {
   styleReady = true;
   applyViewMode();
   applyFilter();
-});
+};
+map.on("style.load", initLayers);
+map.on("load", initLayers);
 
 // Mode d'affichage : brouillard (défaut) ou couleurs pleines.
 // Dans le brouillard, les remplissages passent quasi transparents (le clic
@@ -447,10 +452,13 @@ function applyFilter() {
     groups.get(key).push(f);
   }
   map.getSource("tiles")?.setData({ type: "FeatureCollection", features });
+  // brouillard : tracé fin le long des routes si les traces sont chargées,
+  // sinon repli sur les contours des cases
+  rebuildTraceCells();
   map.getSource("fog")?.setData({
     type: "Feature",
     properties: {},
-    geometry: fogGeometry(features),
+    geometry: traceCells?.size ? fogFromTrace() : fogGeometry(features),
   });
   // Zones colorées : mêmes contours arrondis que le brouillard, un
   // polygone par groupe de sports (damier conservé pour les hybrides)
@@ -487,7 +495,13 @@ function roundedRings(features) {
     const y = Math.round(((1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2) * n);
     cells.add(x + ":" + y);
   }
+  return cellRings(cells, n, [0.4, 0.25, 0.25]);
+}
 
+// Contours arrondis d'un ensemble de cellules de grille : union -> boucles
+// frontières -> compression des colinéaires -> lissage de Chaikin.
+function cellRings(cells, n, passes) {
+  if (!cells.size) return { outers: [], pockets: [] };
   // arêtes frontières orientées (intérieur révélé à gauche)
   const edges = new Map();
   const addEdge = (x1, y1, x2, y2) => {
@@ -522,10 +536,27 @@ function roundedRings(features) {
     }
   }
 
+  // compression des segments colinéaires (les longues lignes droites
+  // deviennent 2 points) pour garder des géométries légères
+  const compress = (lp) => {
+    const out = [];
+    for (let i = 0; i < lp.length; i++) {
+      const prev = lp[(i - 1 + lp.length) % lp.length];
+      const cur = lp[i];
+      const next = lp[(i + 1) % lp.length];
+      if (
+        Math.sign(cur[0] - prev[0]) !== Math.sign(next[0] - cur[0]) ||
+        Math.sign(cur[1] - prev[1]) !== Math.sign(next[1] - cur[1])
+      )
+        out.push(cur);
+    }
+    return out.length >= 3 ? out : lp;
+  };
+
   // lissage de Chaikin, première passe agressive pour un vrai rendu
-  // arrondi (rayon ~40 % de case), puis passes fines ; conversion ensuite
+  // arrondi (rayon ~40 % de cellule), puis passes fines ; conversion ensuite
   const smooth = (pts) => {
-    for (const t of [0.4, 0.25, 0.25]) {
+    for (const t of passes) {
       const out = [];
       for (let i = 0; i < pts.length; i++) {
         const a = pts[i], b = pts[(i + 1) % pts.length];
@@ -542,12 +573,13 @@ function roundedRings(features) {
   ];
 
   const outers = [], pockets = [];
-  for (const lp of loops) {
+  for (let lp of loops) {
     let a = 0; // aire signée en espace grille : <0 = contour extérieur, >0 = poche
     for (let i = 0; i < lp.length; i++) {
       const p = lp[i], q = lp[(i + 1) % lp.length];
       a += p[0] * q[1] - q[0] * p[1];
     }
+    lp = compress(lp);
     const ring = smooth(lp).map(toLngLat);
     ring.push(ring[0]);
     (a < 0 ? outers : pockets).push(ring);
@@ -557,12 +589,89 @@ function roundedRings(features) {
 
 // Voile mondial : troué des contours extérieurs, les poches redeviennent
 // des îlots de brouillard indépendants
+const WORLD_RING = [[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]];
 function fogGeometry(features) {
-  const WORLD = [[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]];
   const { outers, pockets } = roundedRings(features);
   return {
     type: "MultiPolygon",
-    coordinates: [[WORLD, ...outers], ...pockets.map((r) => [r])],
+    coordinates: [[WORLD_RING, ...outers], ...pockets.map((r) => [r])],
+  };
+}
+
+// --- Tracé fin : le brouillard se perce le long des traces GPS ---
+// Corridor ~500 m rasterisé sur une grille 2^17 (cellules ~300 m), bien
+// plus net que les cases de jeu (2,4 km) qui restent l'unité de score.
+const TRACE_N = 131072; // 2^17
+let activitiesData = null;
+let traceCells = null;
+let traceKey = null;
+
+function decodePoly(str) {
+  let i = 0, lat = 0, lng = 0;
+  const coords = [];
+  while (i < str.length) {
+    let b, shift = 0, result = 0;
+    do { b = str.charCodeAt(i++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    lat += result & 1 ? ~(result >> 1) : result >> 1;
+    shift = 0; result = 0;
+    do { b = str.charCodeAt(i++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    lng += result & 1 ? ~(result >> 1) : result >> 1;
+    if (Number.isFinite(lat) && Number.isFinite(lng)) coords.push([lat / 1e5, lng / 1e5]);
+  }
+  return coords;
+}
+
+function rebuildTraceCells() {
+  if (!activitiesData) return;
+  const key = (periodSince || "") + "|" + [...hiddenSports].sort().join(",") + "|" + activitiesData.length;
+  if (key === traceKey) return;
+  traceKey = key;
+  const n = TRACE_N;
+  const cells = new Set();
+  const toGrid = (lat, lng) => {
+    const latR = (lat * Math.PI) / 180;
+    return [
+      ((lng + 180) / 360) * n,
+      ((1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2) * n,
+    ];
+  };
+  const mark = (cx, cy) => {
+    cells.add(cx + ":" + cy);
+    cells.add(cx + 1 + ":" + cy);
+    cells.add(cx - 1 + ":" + cy);
+    cells.add(cx + ":" + (cy + 1));
+    cells.add(cx + ":" + (cy - 1));
+  };
+  for (const a of activitiesData) {
+    if (!a.polyline) continue;
+    if (hiddenSports.has(a.sport_type || "Autre")) continue;
+    if (periodSince && (!a.start_date || a.start_date < periodSince)) continue;
+    let prev = null;
+    for (const [lat, lng] of decodePoly(a.polyline)) {
+      const cur = toGrid(lat, lng);
+      if (prev) {
+        // échantillonnage à la demi-cellule le long du segment
+        const steps = Math.max(1, Math.ceil(2 * Math.max(Math.abs(cur[0] - prev[0]), Math.abs(cur[1] - prev[1]))));
+        for (let s = 1; s <= steps; s++) {
+          mark(
+            Math.floor(prev[0] + ((cur[0] - prev[0]) * s) / steps),
+            Math.floor(prev[1] + ((cur[1] - prev[1]) * s) / steps)
+          );
+        }
+      } else {
+        mark(Math.floor(cur[0]), Math.floor(cur[1]));
+      }
+      prev = cur;
+    }
+  }
+  traceCells = cells;
+}
+
+function fogFromTrace() {
+  const { outers, pockets } = cellRings(traceCells, TRACE_N, [0.4, 0.25]);
+  return {
+    type: "MultiPolygon",
+    coordinates: [[WORLD_RING, ...outers], ...pockets.map((r) => [r])],
   };
 }
 
@@ -850,7 +959,13 @@ async function poll() {
       "Bienvenue ! Laisse-nous quelques instants pour récupérer ton historique…";
   }
   await Promise.all([refreshStats(), refreshMap(), refreshSports(), refreshRanking()]);
-  if (syncing) pollTimer = setTimeout(poll, 8000);
+  if (syncing) {
+    // la carte se révèle en direct : on recharge les traces pendant la sync
+    api("/api/activities").then((rows) => {
+      if (rows) { activitiesData = rows; applyFilter(); }
+    });
+    pollTimer = setTimeout(poll, 8000);
+  }
 }
 
 async function boot() {
@@ -893,6 +1008,11 @@ async function boot() {
   if (me.profile && me.profile.startsWith("http")) $("avatar").src = me.profile;
   refreshClan();
   poll();
+  // traces GPS pour le brouillard fin (rechargées pendant la sync par poll)
+  api("/api/activities").then((rows) => {
+    activitiesData = rows || [];
+    applyFilter();
+  });
 }
 
 // --- Menu "Mes pays" : score par pays + zone principale ---
