@@ -279,6 +279,15 @@ map.addControl(new maplibregl.NavigationControl(), "bottom-right");
 window._map = map; // debug/console
 
 const $ = (id) => document.getElementById(id);
+
+// Échappement HTML pour toute donnée externe injectée en innerHTML
+// (noms d'athlètes Strava, noms/codes de clan) : sans ça, un nom comme
+// <img src=x onerror=…> exécute du JS chez les autres joueurs.
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+  );
+}
 let firstFit = true;
 let styleReady = false;
 
@@ -816,7 +825,7 @@ function lbRow(rank, who, tiles, leaderTiles, isMe) {
   return `<div class="lb-row${isMe ? " me" : ""}">
     <div class="lb-line">
       <span class="rank">${rank}</span>
-      <span class="who">${who}</span>
+      <span class="who">${esc(who)}</span>
       <span class="val">${tiles.toLocaleString("fr-FR")} · ${pct} %</span>
     </div>
     <div class="lb-bar"><div style="width:${pct}%"></div></div>
@@ -864,7 +873,7 @@ async function refreshClan() {
   $("clan-forms").style.display = "none";
   document.querySelector("#clan .tabs").style.display = "flex";
   $("clan-title").innerHTML =
-    `Clan · ${clan.name} <span class="code">code : ${clan.invite_code}</span>`;
+    `Clan · ${esc(clan.name)} <span class="code">code : ${esc(clan.invite_code)}</span>`;
   const rows = clan.members
     .map((m) => ({
       name: `${m.firstname} ${m.lastname ?? ""}`.trim(),
@@ -877,7 +886,7 @@ async function refreshClan() {
       (m, i) => `
       <div class="member">
         <span class="rank">${i + 1}</span>
-        <span class="who">${m.name}</span>
+        <span class="who">${esc(m.name)}</span>
         <span class="val">${
           metric === "km"
             ? m.km.toLocaleString("fr-FR") + " km"
@@ -943,8 +952,22 @@ $("join-clan").onclick = async () => {
 
 let pollTimer = null;
 async function poll() {
-  const me = await api("/api/me");
-  if (!me) return;
+  // On distingue déconnexion (401 -> on arrête) et erreur passagère
+  // (5xx, réseau coupé -> on reprogramme) pour ne pas figer la barre de
+  // progression sur un simple blip pendant la sync.
+  let me = null, transient = false;
+  try {
+    const res = await fetch("/api/me");
+    if (res.status === 401) return; // déconnecté : arrêt définitif
+    if (res.ok) me = await res.json();
+    else transient = true;
+  } catch {
+    transient = true; // réseau indisponible
+  }
+  if (!me) {
+    if (transient) pollTimer = setTimeout(poll, 8000);
+    return;
+  }
   const syncing = me.sync_status === "syncing" || me.sync_status === "queued";
   $("progress").style.display = syncing ? "block" : "none";
   $("subtitle").textContent = syncing
@@ -958,12 +981,12 @@ async function poll() {
     $("progress-label").textContent =
       "Bienvenue ! Laisse-nous quelques instants pour récupérer ton historique…";
   }
-  await Promise.all([refreshStats(), refreshMap(), refreshSports(), refreshRanking()]);
+  await Promise.all([refreshStats(), refreshMap(), refreshSports(), refreshRanking()]).catch(() => {});
   if (syncing) {
     // la carte se révèle en direct : on recharge les traces pendant la sync
     api("/api/activities").then((rows) => {
       if (rows) { activitiesData = rows; applyFilter(); }
-    });
+    }).catch(() => {});
     pollTimer = setTimeout(poll, 8000);
   }
 }
@@ -982,7 +1005,7 @@ async function boot() {
       $("welcome-top").innerHTML = pub.top.map((p, i) => `
         <div class="w-row">
           <span class="medal">${medals[i]}</span>
-          <span class="who">${p.name}</span>
+          <span class="who">${esc(p.name)}</span>
           <span class="val">${p.tiles.toLocaleString("fr-FR")} cases</span>
         </div>`).join("");
       $("welcome-join").textContent =

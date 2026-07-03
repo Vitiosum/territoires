@@ -11,10 +11,32 @@ import {
 import { tileToPolygon, tilesForTrack, decodePolyline, tileAreaKm2, tileCenter, ZOOM } from "./lib/tiles.js";
 import { countryOf } from "./lib/countries.js";
 
+// L'auth repose entièrement sur le cookie signé : sans secret propre, on
+// refuse de démarrer (comme db.js pour l'URI) plutôt que d'utiliser un
+// secret public qui rendrait les sessions forgeables.
+if (!process.env.APP_SECRET) {
+  console.error("APP_SECRET manquant. clever env set APP_SECRET \"$(openssl rand -hex 32)\"");
+  process.exit(1);
+}
+
 const app = express();
 app.use(express.json());
-app.use(cookieParser(process.env.APP_SECRET || "dev-secret"));
+app.use(cookieParser(process.env.APP_SECRET));
 app.use(express.static("public"));
+
+// Express 4 ne rattrape pas les rejets des handlers async : un rejet non
+// géré (ex. coupure PostgreSQL transitoire) tuerait le process. On enrobe
+// donc chaque handler pour router les rejets vers le middleware d'erreur.
+for (const method of ["get", "post"]) {
+  const orig = app[method].bind(app);
+  app[method] = (path, ...handlers) =>
+    orig(
+      path,
+      ...handlers.map((h) =>
+        h.length >= 4 ? h : (req, res, next) => Promise.resolve(h(req, res, next)).catch(next)
+      )
+    );
+}
 
 // Clever Cloud : PORT=8080 attendu par défaut
 const PORT = process.env.PORT || 8080;
@@ -415,6 +437,18 @@ app.post("/webhook/strava", async (req, res) => {
     console.error("webhook:", e.message);
   }
 });
+
+// Middleware d'erreur : renvoie 500 propre au lieu de laisser pendre la
+// requête (les rejets async y arrivent via l'enrobage ci-dessus).
+app.use((err, req, res, next) => {
+  console.error("route:", err.message);
+  if (!res.headersSent) res.status(500).json({ error: "server" });
+});
+
+// Filet de sécurité ultime : on log au lieu de crasher sur un rejet ou une
+// exception échappée (worker de sync, callback…), pour tenir en démo.
+process.on("unhandledRejection", (e) => console.error("unhandledRejection:", e));
+process.on("uncaughtException", (e) => console.error("uncaughtException:", e));
 
 // --- Démarrage ---
 await migrate();
