@@ -530,7 +530,7 @@ function applyFilter() {
   let fogGeom;
   if (territoryMode) {
     const { filled, interior } = conquestCells();
-    const { outers, pockets } = cellRings(filled, TRACE_N, [0.4, 0.25, 0.25]);
+    const { outers, pockets } = cellRings(filled, CONQUEST_N, [0.4, 0.25, 0.25]);
     const polys = outers.map((o) => [o]);
     for (const p of pockets) {
       const host = polys.find((poly) => pointInRing(p[0][0], p[0][1], poly[0]));
@@ -539,11 +539,11 @@ function applyFilter() {
     map.getSource("territory")?.setData({
       type: "Feature", properties: {}, geometry: { type: "MultiPolygon", coordinates: polys },
     });
-    fogGeom = fogFromCells(filled, TRACE_N);
+    fogGeom = fogFromCells(filled, CONQUEST_N);
     let area = 0;
     for (const k of interior) {
       const [x, y] = k.split(":").map(Number);
-      area += cellAreaKm2(x, y, TRACE_N);
+      area += cellAreaKm2(x, y, CONQUEST_N);
     }
     showConquest(area);
   } else {
@@ -847,21 +847,19 @@ function rebuildTraceCells() {
   traceCells = cells;
 }
 
-// Mode Conquête, précis : pour CHAQUE parcours en boucle, on remplit son
-// intérieur sur la grille fine (rasterisation + flood fill par activité),
-// puis on réunit traces + intérieurs. Fait au niveau du parcours — « quand
-// on fait un rond, on gagne le milieu » — même si les boucles sont éloignées.
+// Mode Conquête : on rasterise TOUTES les traces sur une même grille puis on
+// remplit toute zone encerclée par l'ensemble de tes passages — que le tour
+// ait été bouclé en une sortie ou réparti sur plusieurs. Grille 2^16
+// (~350 m) : assez fine pour remplir une boucle de quelques km, assez
+// grossière pour couvrir une région sans exploser la mémoire.
+const CONQUEST_N = 65536; // 2^16
 function conquestCells() {
-  const filled = new Set();   // traces + intérieurs (pour le rendu)
-  const interior = new Set(); // seulement l'intérieur gagné (pour le compteur)
-  for (const a of visibleActivities()) {
-    const pts = decodePoly(a.polyline);
-    if (pts.length < 6) continue;
-    const cells = new Set();
-    rasterizeTrace(pts, TRACE_N, (x, y) => cells.add(x + ":" + y));
-    for (const k of cells) filled.add(k);
-    for (const k of interiorCells(cells)) { filled.add(k); interior.add(k); }
-  }
+  const trace = new Set();
+  const add = (x, y) => trace.add(x + ":" + y);
+  for (const a of visibleActivities()) rasterizeTrace(decodePoly(a.polyline), CONQUEST_N, add);
+  const interior = interiorCells(trace); // flood fill de l'union, sans plafond
+  const filled = new Set(trace);
+  for (const k of interior) filled.add(k);
   return { filled, interior };
 }
 
