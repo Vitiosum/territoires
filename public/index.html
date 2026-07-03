@@ -212,6 +212,11 @@
   <div id="countries-card">
     <button class="close" id="countries-close">✕</button>
     <h2>🌍 Mes pays</h2>
+    <div class="tabs" style="margin-top:10px">
+      <button id="csort-pct" class="on">% du pays</button>
+      <button id="csort-km">Kilomètres</button>
+      <button id="csort-tiles">Cases</button>
+    </div>
     <div id="main-zone" style="display:none">
       <span id="main-zone-label">Zone principale : …</span>
       <button id="main-zone-go">Y aller</button>
@@ -703,7 +708,18 @@ async function openCountries() {
       .catch(() => ($("main-zone-label").textContent = "Zone principale"));
   }
 
-  const rows = (await api("/api/countries")) || [];
+  countryRows = (await api("/api/countries")) || [];
+  renderCountries();
+}
+
+// Tri du tableau pays : % du pays, kilomètres ou cases.
+// La barre est relative au meilleur pays selon le critère choisi.
+let countryRows = [];
+let countrySort = "pct";
+
+function renderCountries() {
+  const rows = [...countryRows].sort((a, b) => b[countrySort] - a[countrySort]);
+  const max = rows[0]?.[countrySort] || 1;
   $("countries-rows").innerHTML = rows.length
     ? rows.map((c, i) => `
       <div class="country-row" data-i="${i}" title="Voir mes cases : ${c.name}">
@@ -713,7 +729,7 @@ async function openCountries() {
           <span class="val">${Math.round(c.km).toLocaleString("fr-FR")} km · ${c.tiles.toLocaleString("fr-FR")} cases · ${fmtPct(c.pct)}</span>
           <span class="go">Y aller ›</span>
         </div>
-        <div class="country-bar"><div style="width:${Math.max(0.5, Math.min(100, c.pct))}%"></div></div>
+        <div class="country-bar"><div style="width:${Math.max(1, (100 * c[countrySort]) / max)}%"></div></div>
       </div>`).join("")
     : '<div class="lb-sep">Aucune case pour l\'instant</div>';
   for (const el of document.querySelectorAll(".country-row")) {
@@ -727,6 +743,15 @@ async function openCountries() {
       );
     };
   }
+}
+
+for (const [id, key] of [["csort-pct", "pct"], ["csort-km", "km"], ["csort-tiles", "tiles"]]) {
+  $(id).onclick = () => {
+    countrySort = key;
+    for (const b of document.querySelectorAll("#countries-card .tabs button"))
+      b.classList.toggle("on", b.id === id);
+    renderCountries();
+  };
 }
 $("countries-btn").onclick = openCountries;
 $("countries-close").onclick = () => ($("countries-modal").style.display = "none");
