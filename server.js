@@ -206,6 +206,25 @@ app.get("/api/countries", requireAuth, async (req, res) => {
   res.json(out);
 });
 
+// Top public pour l'écran d'accueil (prénom + initiale, sans auth)
+app.get("/api/leaderboard/public", async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT a.firstname, a.lastname,
+       (SELECT count(*)::int FROM tiles t WHERE t.athlete_id=a.id) AS tiles
+     FROM athletes a ORDER BY tiles DESC, a.id LIMIT 5`
+  );
+  const { rows: n } = await pool.query("SELECT count(*)::int AS n FROM athletes");
+  res.json({
+    top: rows
+      .filter((r) => r.tiles > 0)
+      .map((r) => ({
+        name: `${r.firstname || ""} ${(r.lastname || "").slice(0, 1)}${r.lastname ? "." : ""}`.trim(),
+        tiles: r.tiles,
+      })),
+    players: n[0].n,
+  });
+});
+
 // Classement global joueurs : top 10 + ta position, en % du leader
 app.get("/api/leaderboard", requireAuth, async (req, res) => {
   const { rows } = await pool.query(

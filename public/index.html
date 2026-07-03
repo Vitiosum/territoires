@@ -120,6 +120,17 @@
     padding: 9px 12px; font-size: 12.5px; border-radius: 8px; border: 0;
     background: var(--brand); color: #fff; cursor: pointer; margin-top: 6px;
   }
+  #welcome { display: none; margin-top: 12px; }
+  #welcome .pitch { font-size: 13.5px; line-height: 1.45; }
+  #welcome .pitch b { color: var(--brand); }
+  #welcome h3 { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-top: 14px; }
+  .w-row { display: flex; gap: 8px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
+  .w-row:first-of-type { border-top: 0; }
+  .w-row .medal { width: 22px; flex: none; }
+  .w-row .who { flex: 1; }
+  .w-row .val { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  #welcome .join { margin-top: 12px; font-size: 13px; font-weight: 600; color: #085041; }
+  #panel .free { font-size: 11.5px; color: var(--muted); margin-top: 8px; text-align: center; }
   #ranking { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; display: none; }
   #ranking h2 { font-size: 13.5px; font-weight: 600; }
   .lb-row { padding: 7px 0 9px; border-top: 1px solid var(--line); font-size: 13px; }
@@ -149,6 +160,13 @@
     <img id="avatar" alt="">
     <div><b id="name">Territoires</b><span id="subtitle">Chaque sortie capture des cases.</span></div>
     <button id="countries-btn" title="Mes pays">🌍</button>
+  </div>
+
+  <div id="welcome">
+    <p class="pitch">Connecte ton Strava et regarde chaque sortie <b>capturer des cases</b> sur la carte. Conquiers ton quartier, monte en rang, défie tes amis en clan.</p>
+    <h3 id="welcome-top-title">Le podium</h3>
+    <div id="welcome-top"></div>
+    <p class="join" id="welcome-join">🏁 Rejoins l'aventure — ta place t'attend.</p>
   </div>
 
   <div id="chips"></div>
@@ -187,6 +205,7 @@
   </div>
 
   <button class="cta" id="connect">Se connecter avec Strava</button>
+  <p class="free" id="welcome-free" style="display:none">Gratuit · connexion Strava en un clic · tes données restent à toi</p>
 
   <div id="clan">
     <h2 id="clan-title">Clan</h2>
@@ -645,12 +664,16 @@ async function poll() {
   if (!me) return;
   const syncing = me.sync_status === "syncing" || me.sync_status === "queued";
   $("progress").style.display = syncing ? "block" : "none";
+  $("subtitle").textContent = syncing
+    ? "On analyse où tu as voyagé… tes zones apparaissent en direct ✨"
+    : "Ta carte de conquête";
   if (syncing && me.sync_total > 0) {
     $("fill").style.width = `${Math.round((100 * me.sync_done) / me.sync_total)}%`;
     $("progress-label").textContent =
-      `Synchronisation : ${me.sync_done} / ${me.sync_total} activités`;
+      `Analyse de tes voyages : ${me.sync_done} / ${me.sync_total} activités`;
   } else if (syncing) {
-    $("progress-label").textContent = "Récupération de la liste des activités…";
+    $("progress-label").textContent =
+      "Bienvenue ! Laisse-nous quelques instants pour récupérer ton historique…";
   }
   await Promise.all([refreshStats(), refreshMap(), refreshSports(), refreshRanking()]);
   if (syncing) pollTimer = setTimeout(poll, 8000);
@@ -659,9 +682,30 @@ async function poll() {
 async function boot() {
   const me = await api("/api/me");
   if (!me) {
+    // Écran d'accueil : pitch + podium public + appel à rejoindre
     $("connect").style.display = "block";
+    $("welcome").style.display = "block";
+    $("welcome-free").style.display = "block";
+    document.querySelector(".row").style.display = "none";
+    const pub = await api("/api/leaderboard/public");
+    if (pub?.top?.length) {
+      const medals = ["🥇", "🥈", "🥉", "4.", "5."];
+      $("welcome-top").innerHTML = pub.top.map((p, i) => `
+        <div class="w-row">
+          <span class="medal">${medals[i]}</span>
+          <span class="who">${p.name}</span>
+          <span class="val">${p.tiles.toLocaleString("fr-FR")} cases</span>
+        </div>`).join("");
+      $("welcome-join").textContent =
+        `🏁 Déjà ${pub.players} explorateur${pub.players > 1 ? "s" : ""} — viens prendre leur place.`;
+    } else {
+      $("welcome-top-title").style.display = "none";
+    }
     return;
   }
+  $("welcome").style.display = "none";
+  $("welcome-free").style.display = "none";
+  document.querySelector(".row").style.display = "flex";
   $("connect").style.display = "none";
   $("logout").style.display = "block";
   $("period-tabs").style.display = "flex";
