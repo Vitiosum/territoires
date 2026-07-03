@@ -853,11 +853,43 @@ function rebuildTraceCells() {
 // (~350 m) : assez fine pour remplir une boucle de quelques km, assez
 // grossière pour couvrir une région sans exploser la mémoire.
 const CONQUEST_N = 65536; // 2^16
+// Rayon de fermeture morphologique (en cellules) : de vraies traces GPS
+// laissent des brèches aux jonctions ; on les bouche (jusqu'à ~2×R×350 m
+// ≈ 2,8 km) avant le flood fill, sinon l'extérieur fuit et rien ne se remplit.
+const CONQUEST_CLOSE = 4;
+
+// Dilatation / érosion (élément carré) ; la fermeture = dilater puis éroder
+// bouche les trous ≤ 2R sans agrandir la forme globale.
+function dilate(cells, r) {
+  const out = new Set();
+  for (const k of cells) {
+    const [x, y] = k.split(":").map(Number);
+    for (let dx = -r; dx <= r; dx++)
+      for (let dy = -r; dy <= r; dy++) out.add((x + dx) + ":" + (y + dy));
+  }
+  return out;
+}
+function erode(cells, r) {
+  const out = new Set();
+  for (const k of cells) {
+    const [x, y] = k.split(":").map(Number);
+    let keep = true;
+    for (let dx = -r; dx <= r && keep; dx++)
+      for (let dy = -r; dy <= r; dy++)
+        if (!cells.has((x + dx) + ":" + (y + dy))) { keep = false; break; }
+    if (keep) out.add(k);
+  }
+  return out;
+}
+
 function conquestCells() {
   const trace = new Set();
   const add = (x, y) => trace.add(x + ":" + y);
   for (const a of visibleActivities()) rasterizeTrace(decodePoly(a.polyline), CONQUEST_N, add);
-  const interior = interiorCells(trace); // flood fill de l'union, sans plafond
+  // fermeture morphologique : bouche les brèches du contour avant le remplissage
+  const closed = erode(dilate(trace, CONQUEST_CLOSE), CONQUEST_CLOSE);
+  const interior = new Set();
+  for (const k of interiorCells(closed)) interior.add(k);
   const filled = new Set(trace);
   for (const k of interior) filled.add(k);
   return { filled, interior };
