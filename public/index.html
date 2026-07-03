@@ -84,11 +84,18 @@
   }
   #level { margin-top: 12px; display: none; }
   #level .lvl-top { display: flex; align-items: center; justify-content: space-between; }
-  #level .lvl-top b {
-    font-size: 12.5px; color: #fff; background: var(--brand);
-    padding: 3px 10px; border-radius: 99px; letter-spacing: .02em;
+  #level .lvl-badge {
+    display: inline-flex; align-items: center; gap: 7px; color: #fff;
+    background: var(--brand); padding: 3px 11px 3px 8px; border-radius: 99px;
   }
-  #level .lvl-top span { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  #level .lvl-badge b { font-size: 12.5px; font-weight: 700; letter-spacing: .02em; }
+  .gem {
+    width: 11px; height: 11px; border-radius: 2px; transform: rotate(45deg);
+    background: linear-gradient(135deg, #fff, rgba(255,255,255,.7));
+    box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.6), 0 1px 3px rgba(0,0,0,.25);
+    flex: none;
+  }
+  #level .lvl-top > span { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
   #level .bar { height: 6px; background: rgba(16,32,28,.1); border-radius: 3px; overflow: hidden; margin-top: 5px; }
   #level .fill { height: 100%; width: 0%; background: var(--brand); transition: width .6s ease; }
   #level p { font-size: 12px; color: var(--muted); margin-top: 5px; }
@@ -150,17 +157,48 @@
   .maplibregl-popup-content { font: 13px ui-sans-serif, system-ui; border-radius: 10px; padding: 10px 12px; }
   .pop-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
   #logout { all: unset; display: block; margin-top: 10px; font-size: 12px; color: var(--muted); cursor: pointer; text-decoration: underline; }
+
+  /* Poignée + résumé : n'apparaissent qu'en mode bottom-sheet (mobile) */
+  #sheet-handle { display: none; width: 40px; height: 5px; border-radius: 3px; background: rgba(16,32,28,.18); margin: 0 auto 10px; }
+  #sheet-summary { display: none; gap: 8px; align-items: center; margin-top: 8px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  #sheet-summary .g { width: 10px; height: 10px; border-radius: 2px; transform: rotate(45deg); flex: none; box-shadow: inset 0 0 0 1.4px rgba(255,255,255,.6); }
+
+  /* Sur téléphone, le panneau devient une feuille ancrée en bas, repliée
+     par défaut pour laisser voir la carte ; on tire la poignée pour ouvrir. */
+  @media (max-width: 640px) {
+    #panel {
+      top: auto; bottom: 0; left: 0;
+      width: 100%; max-width: 100%;
+      max-height: 86vh;
+      border-radius: 16px 16px 0 0;
+      border-bottom: 0;
+      padding: 10px 16px max(16px, env(safe-area-inset-bottom));
+      transition: max-height .3s ease;
+      -webkit-overflow-scrolling: touch;
+    }
+    #panel:not(.expanded) { max-height: 132px; overflow: hidden; }
+    #panel:not(.expanded)::after {
+      content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 26px;
+      background: linear-gradient(rgba(250,252,250,0), var(--panel));
+      pointer-events: none;
+    }
+    #sheet-handle { display: block; cursor: pointer; }
+    #panel:not(.expanded) #sheet-summary { display: flex; }
+    #panel.expanded #sheet-summary { display: none; }
+  }
 </style>
 </head>
 <body>
 <div id="map"></div>
 
 <div id="panel">
+  <div id="sheet-handle" title="Ouvrir / fermer"></div>
   <div class="head">
     <img id="avatar" alt="">
     <div><b id="name">Territoires</b><span id="subtitle">Chaque sortie capture des cases.</span></div>
     <button id="countries-btn" title="Mes pays">🌍</button>
   </div>
+  <div id="sheet-summary"></div>
 
   <div id="welcome">
     <p class="pitch">Connecte ton Strava et regarde chaque sortie <b>capturer des cases</b> sur la carte. Conquiers ton quartier, monte en rang, défie tes amis en clan.</p>
@@ -188,7 +226,7 @@
   </div>
 
   <div id="level">
-    <div class="lvl-top"><b id="lvl-name">–</b><span id="lvl-count">–</span></div>
+    <div class="lvl-top"><span class="lvl-badge" id="lvl-badge"><i class="gem"></i><b id="lvl-name">–</b></span><span id="lvl-count">–</span></div>
     <div class="bar"><div class="fill" id="lvl-fill"></div></div>
     <p id="equiv"></p>
   </div>
@@ -275,7 +313,8 @@ const map = new maplibregl.Map({
     layers: [{ id: "osm", type: "raster", source: "osm" }],
   },
 });
-map.addControl(new maplibregl.NavigationControl(), "bottom-right");
+// haut-droite : ne passe pas sous le bottom-sheet mobile ancré en bas
+map.addControl(new maplibregl.NavigationControl(), "top-right");
 window._map = map; // debug/console
 
 const $ = (id) => document.getElementById(id);
@@ -796,7 +835,7 @@ async function refreshStats() {
   const next = TIERS[lvl + 1];
   s.tier = cur;
   $("lvl-name").textContent = cur[1];
-  $("lvl-name").style.background = cur[2];
+  $("lvl-badge").style.background = cur[2];
   const streak = s.streak > 1 ? ` · 🔥 ${s.streak} sem.` : "";
   if (next) {
     $("lvl-count").textContent =
@@ -815,6 +854,12 @@ async function refreshStats() {
     ? `${km2.toLocaleString("fr-FR")} km² conquis${quand}${eq ? " · " + eq : ""}`
     : "";
   $("level").style.display = "block";
+
+  // Résumé du bottom-sheet replié (mobile) : gemme + rang + cases + km
+  const km = Math.round(s.distance_m / 1000).toLocaleString("fr-FR");
+  $("sheet-summary").innerHTML =
+    `<span class="g" style="background:${cur[2]}"></span>` +
+    `<b>${cur[1]}</b> · ${s.tiles.toLocaleString("fr-FR")} cases · ${km} km`;
 }
 
 // --- Classement global : joueurs et clans, en % du leader ---
@@ -991,9 +1036,15 @@ async function poll() {
   }
 }
 
+// Bottom-sheet mobile : la poignée ouvre/ferme, le résumé replié ouvre
+$("sheet-handle").onclick = () => $("panel").classList.toggle("expanded");
+$("sheet-summary").onclick = () => $("panel").classList.add("expanded");
+
 async function boot() {
   const me = await api("/api/me");
   if (!me) {
+    // Écran d'accueil déplié pour montrer le pitch et le bouton Strava
+    $("panel").classList.add("expanded");
     // Écran d'accueil : pitch + podium public + appel à rejoindre
     $("connect").style.display = "block";
     $("welcome").style.display = "block";
