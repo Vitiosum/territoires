@@ -84,7 +84,33 @@ app.post("/api/sync", requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// ?since=YYYY-MM-DD : stats de la période (activités filtrées, cases
+// recalculées depuis les polylines, comme /api/tiles?since)
 app.get("/api/stats", requireAuth, async (req, res) => {
+  const since = /^\d{4}-\d{2}-\d{2}$/.test(req.query.since || "")
+    ? req.query.since
+    : null;
+  if (since) {
+    const { rows: acts } = await pool.query(
+      `SELECT count(*)::int AS activities, coalesce(sum(distance_m),0) AS distance_m
+       FROM activities WHERE athlete_id=$1 AND start_date >= $2`,
+      [req.athleteId, since]
+    );
+    const { rows: polys } = await pool.query(
+      `SELECT polyline FROM activities
+       WHERE athlete_id=$1 AND polyline IS NOT NULL AND start_date >= $2`,
+      [req.athleteId, since]
+    );
+    const keys = new Set();
+    for (const a of polys)
+      for (const k of tilesForTrack(decodePolyline(a.polyline))) keys.add(k);
+    let area_km2 = 0;
+    for (const k of keys) {
+      const [x, y] = k.split(":").map(Number);
+      area_km2 += tileAreaKm2(x, y, ZOOM);
+    }
+    return res.json({ ...acts[0], tiles: keys.size, area_km2, period: since });
+  }
   const { rows } = await pool.query(
     `SELECT
        (SELECT count(*)::int FROM tiles WHERE athlete_id=$1) AS tiles,
