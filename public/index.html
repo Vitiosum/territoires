@@ -541,16 +541,23 @@ function applyFilter() {
   map.getSource("fog")?.setData({ type: "Feature", properties: {}, geometry: fogGeom });
 
   // Zones colorées : mêmes contours arrondis que le brouillard, un
-  // polygone par groupe de sports (damier conservé pour les hybrides)
-  const zoneFeatures = [];
-  for (const feats of groups.values()) {
+  // polygone par groupe de sports (damier conservé pour les hybrides).
+  // L'union de toutes les cases est passée en `solid` : les frontières
+  // entre deux groupes (ex. case hybride contre case mono-sport) restent
+  // exactement partagées au lieu d'être arrondies chacune de son côté —
+  // sinon des trous apparaissent aux coins entre zones voisines.
+  const groupEntries = [...groups.values()];
+  const groupCells = groupEntries.map((feats) => conqueredCells(feats));
+  const solid = new Set();
+  for (const s of groupCells) for (const k of s) solid.add(k);
+  const zoneFeatures = groupEntries.map((feats, i) => {
     const p = feats[0].properties;
-    zoneFeatures.push({
+    return {
       type: "Feature",
       properties: { color: p.color, hybrid: p.hybrid, pattern: p.pattern },
-      geometry: zoneGeometry(feats),
-    });
-  }
+      geometry: zoneGeometry(groupCells[i], solid),
+    };
+  });
   map.getSource("zones")?.setData({ type: "FeatureCollection", features: zoneFeatures });
 }
 
@@ -660,70 +667,106 @@ function fogFromCells(cells, n) {
 
 // Contours arrondis d'un ensemble de cellules de grille : union -> boucles
 // frontières -> compression des colinéaires -> lissage de Chaikin.
-function cellRings(cells, n, passes) {
+// `solid` (optionnel) : ensemble de TOUTES les cellules occupées, tous
+// groupes confondus. Une arête face à une cellule d'un autre groupe est
+// « dure » : ses sommets ne sont pas lissés, les deux groupes gardent
+// exactement la même frontière. Sans ça, chaque groupe arrondit ses coins
+// de son côté et des trous apparaissent entre zones voisines (cases
+// hybrides contre mono-sport). Sans `solid`, comportement inchangé.
+function cellRings(cells, n, passes, solid) {
   if (!cells.size) return { outers: [], pockets: [] };
-  // arêtes frontières orientées (intérieur révélé à gauche)
+  // arêtes frontières orientées (intérieur révélé à gauche) + dureté.
+  // anchorPts : sommets touchés par au moins une arête dure — ancrage par
+  // SOMMET (et non par arête d'anneau) pour rester cohérent entre groupes
+  // même aux pincements en diagonale où un anneau passe deux fois
   const edges = new Map();
-  const addEdge = (x1, y1, x2, y2) => {
+  const anchorPts = new Set();
+  const addEdge = (x1, y1, x2, y2, hard) => {
     const k = x1 + ":" + y1;
     if (!edges.has(k)) edges.set(k, []);
-    edges.get(k).push([x2, y2]);
+    edges.get(k).push([x2, y2, hard]);
+    if (hard) { anchorPts.add(k); anchorPts.add(x2 + ":" + y2); }
   };
+  const foreign = (k) => !!solid && solid.has(k); // cellule d'un autre groupe
   for (const key of cells) {
     const [x, y] = key.split(":").map(Number);
-    if (!cells.has(x + ":" + (y - 1))) addEdge(x + 1, y, x, y);
-    if (!cells.has(x + ":" + (y + 1))) addEdge(x, y + 1, x + 1, y + 1);
-    if (!cells.has(x - 1 + ":" + y)) addEdge(x, y, x, y + 1);
-    if (!cells.has(x + 1 + ":" + y)) addEdge(x + 1, y + 1, x + 1, y);
+    let nk;
+    nk = x + ":" + (y - 1);
+    if (!cells.has(nk)) addEdge(x + 1, y, x, y, foreign(nk));
+    nk = x + ":" + (y + 1);
+    if (!cells.has(nk)) addEdge(x, y + 1, x + 1, y + 1, foreign(nk));
+    nk = x - 1 + ":" + y;
+    if (!cells.has(nk)) addEdge(x, y, x, y + 1, foreign(nk));
+    nk = x + 1 + ":" + y;
+    if (!cells.has(nk)) addEdge(x + 1, y + 1, x + 1, y, foreign(nk));
   }
 
-  // chaînage des arêtes en boucles fermées
+  // chaînage des arêtes en boucles fermées ; hard[i] = arête loop[i] -> loop[i+1]
   const loops = [];
   for (const start of edges.keys()) {
     for (;;) {
       const first = edges.get(start);
       if (!first || !first.length) break;
-      const loop = [];
+      const loop = [], hard = [];
       let [cx, cy] = start.split(":").map(Number);
       for (;;) {
         const outs = edges.get(cx + ":" + cy);
         if (!outs || !outs.length) break;
         loop.push([cx, cy]);
-        [cx, cy] = outs.pop();
+        const [nx, ny, hd] = outs.pop();
+        hard.push(hd);
+        cx = nx; cy = ny;
         if (cx + ":" + cy === start) break;
       }
-      if (loop.length >= 4) loops.push(loop);
+      if (loop.length >= 4) loops.push([loop, hard]);
     }
   }
 
   // compression des segments colinéaires (les longues lignes droites
-  // deviennent 2 points) pour garder des géométries légères
-  const compress = (lp) => {
-    const out = [];
+  // deviennent 2 points) pour garder des géométries légères ; un sommet
+  // entre deux arêtes de dureté différente est toujours conservé
+  const compress = (lp, he) => {
+    const pts = [], flags = [];
     for (let i = 0; i < lp.length; i++) {
-      const prev = lp[(i - 1 + lp.length) % lp.length];
+      const pi = (i - 1 + lp.length) % lp.length;
+      const prev = lp[pi];
       const cur = lp[i];
       const next = lp[(i + 1) % lp.length];
       if (
+        he[pi] !== he[i] ||
         Math.sign(cur[0] - prev[0]) !== Math.sign(next[0] - cur[0]) ||
         Math.sign(cur[1] - prev[1]) !== Math.sign(next[1] - cur[1])
-      )
-        out.push(cur);
+      ) {
+        pts.push(cur);
+        flags.push(he[i]);
+      }
     }
-    return out.length >= 3 ? out : lp;
+    return pts.length >= 3 ? [pts, flags] : [lp, he];
   };
 
   // lissage de Chaikin, première passe agressive pour un vrai rendu
-  // arrondi (rayon ~40 % de cellule), puis passes fines ; conversion ensuite
+  // arrondi (rayon ~40 % de cellule), puis passes fines ; les sommets
+  // ancrés (anchorPts) ne sont jamais déplacés, les arêtes dures sont
+  // donc préservées à l'identique des deux côtés de la frontière
   const smooth = (pts) => {
+    let anch = pts.map((p) => anchorPts.has(p[0] + ":" + p[1]));
     for (const t of passes) {
-      const out = [];
+      const out = [], oa = [];
       for (let i = 0; i < pts.length; i++) {
         const a = pts[i], b = pts[(i + 1) % pts.length];
-        out.push([a[0] * (1 - t) + b[0] * t, a[1] * (1 - t) + b[1] * t]);
-        out.push([a[0] * t + b[0] * (1 - t), a[1] * t + b[1] * (1 - t)]);
+        const aA = anch[i], bA = anch[(i + 1) % pts.length];
+        if (aA) {
+          out.push(a); oa.push(true);
+        } else {
+          out.push([a[0] * (1 - t) + b[0] * t, a[1] * (1 - t) + b[1] * t]);
+          oa.push(false);
+        }
+        if (!bA) {
+          out.push([a[0] * t + b[0] * (1 - t), a[1] * t + b[1] * (1 - t)]);
+          oa.push(false);
+        }
       }
-      pts = out;
+      pts = out; anch = oa;
     }
     return pts;
   };
@@ -733,13 +776,13 @@ function cellRings(cells, n, passes) {
   ];
 
   const outers = [], pockets = [];
-  for (let lp of loops) {
+  for (let [lp, he] of loops) {
     let a = 0; // aire signée en espace grille : <0 = contour extérieur, >0 = poche
     for (let i = 0; i < lp.length; i++) {
       const p = lp[i], q = lp[(i + 1) % lp.length];
       a += p[0] * q[1] - q[0] * p[1];
     }
-    lp = compress(lp);
+    [lp, he] = compress(lp, he);
     const ring = smooth(lp).map(toLngLat);
     ring.push(ring[0]);
     (a < 0 ? outers : pockets).push(ring);
@@ -892,12 +935,22 @@ function fogFromTrace() {
 
 // Zones colorées : chaque contour extérieur devient un polygone, ses
 // poches intérieures lui sont rattachées comme trous
-function zoneGeometry(features) {
-  const { outers, pockets } = roundedRings(features);
+function zoneGeometry(cells, solid) {
+  const { outers, pockets } = cellRings(cells, TILE_N, [0.4, 0.25, 0.25], solid);
   const polys = outers.map((o) => [o]);
   for (const p of pockets) {
-    const [px, py] = p[0];
-    const host = polys.find((poly) => pointInRing(px, py, poly[0]));
+    // Sonde au MILIEU d'une arête de la poche, pas sur un sommet : aux
+    // pincements en diagonale, un sommet ancré de la poche peut coïncider
+    // exactement avec un sommet du contour hôte et faire échouer le
+    // ray-casting (poche perdue -> le groupe recouvrirait l'enclave ou le
+    // groupe voisin). Une arête de poche, elle, n'est jamais portée par le
+    // contour extérieur, sinon les boucles auraient fusionné au chaînage.
+    let host = null;
+    for (let i = 0; i + 1 < p.length && !host; i++) {
+      const mx = (p[i][0] + p[i + 1][0]) / 2;
+      const my = (p[i][1] + p[i + 1][1]) / 2;
+      host = polys.find((poly) => pointInRing(mx, my, poly[0]));
+    }
     if (host) host.push(p);
   }
   return { type: "MultiPolygon", coordinates: polys };
