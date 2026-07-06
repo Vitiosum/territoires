@@ -84,7 +84,13 @@
     width: 100%; margin-top: 12px; padding: 12px; font-size: 15px; font-weight: 700;
     color: #fff; background: #fc5200; border: 0; border-radius: 6px; cursor: pointer;
     display: flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: 48px; /* hauteur minimale du bouton officiel (guidelines) */
   }
+  #delete-account {
+    display: none; width: 100%; margin-top: 6px; padding: 6px; font-size: 12px;
+    color: #b3392f; background: none; border: 0; cursor: pointer; text-decoration: underline;
+  }
+  #strava-profile { color: #fc5200; font-size: 12px; font-weight: 600; text-decoration: none; display: none; }
   #powered {
     display: flex; align-items: center; justify-content: center; gap: 6px;
     margin-top: 14px; font-size: 12px; font-weight: 600; color: #fc5200;
@@ -211,7 +217,8 @@
   <div id="sheet-handle" title="Ouvrir / fermer"></div>
   <div class="head">
     <img id="avatar" alt="">
-    <div><b id="name">Territoires</b><span id="subtitle">Chaque sortie capture des cases.</span></div>
+    <div><b id="name">Territoires</b><span id="subtitle">Chaque sortie capture des cases.</span>
+      <a id="strava-profile" href="https://www.strava.com" target="_blank" rel="noopener">Voir sur Strava ↗</a></div>
     <button id="countries-btn" title="Mes pays">🌍</button>
   </div>
   <div id="sheet-summary"></div>
@@ -293,6 +300,7 @@
   </div>
 
   <button id="logout" style="display:none">déconnexion</button>
+  <button id="delete-account">Supprimer mon compte et toutes mes données</button>
 
   <a id="powered" href="https://www.strava.com" target="_blank" rel="noopener">
     <svg viewBox="0 0 24 24" width="14" height="14" fill="#fc5200" aria-hidden="true"><path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169"/></svg>
@@ -1377,6 +1385,9 @@ async function boot() {
   document.querySelector(".row").style.display = "flex";
   $("connect").style.display = "none";
   $("logout").style.display = "block";
+  $("delete-account").style.display = "block";
+  $("strava-profile").href = "https://www.strava.com/athletes/" + me.id;
+  $("strava-profile").style.display = "inline-block";
   $("period-tabs").style.display = "flex";
   $("view-tabs").style.display = "flex";
   $("territory-toggle").style.display = "block";
@@ -1553,6 +1564,12 @@ $("share").onclick = shareCard;
 boot();
 
 $("connect").onclick = () => (location.href = "/auth/strava");
+$("delete-account").onclick = async () => {
+  if (!confirm("Supprimer définitivement ton compte, tes activités et tout ton territoire ? L'accès Strava sera aussi révoqué.")) return;
+  await api("/api/me/delete", { method: "POST" });
+  location.reload();
+};
+
 $("logout").onclick = async () => {
   await api("/auth/logout", { method: "POST" });
   location.reload();

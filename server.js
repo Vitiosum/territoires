@@ -2,12 +2,14 @@ import express from "express";
 import cookieParser from "cookie-parser";
 import crypto from "node:crypto";
 import { pool, migrate } from "./lib/db.js";
-import { authorizeUrl, exchangeCode } from "./lib/strava.js";
+import { authorizeUrl, exchangeCode, getValidToken } from "./lib/strava.js";
 import {
   enqueueFullSync,
   enqueueSingleActivity,
   resumeInterrupted,
   captureTerritory,
+  deleteAthleteData,
+  removeActivity,
 } from "./lib/sync.js";
 import { tileToPolygon, tilesForTrack, decodePolyline, tileAreaKm2, tileCenter, ZOOM } from "./lib/tiles.js";
 import { countryOf } from "./lib/countries.js";
@@ -89,6 +91,24 @@ app.get("/auth/callback", async (req, res) => {
 });
 
 app.post("/auth/logout", (req, res) => {
+  res.clearCookie("aid");
+  res.json({ ok: true });
+});
+
+// Droit à l'effacement (accord API Strava) : révoque le token côté Strava
+// puis supprime toutes les données de l'athlète.
+app.post("/api/me/delete", requireAuth, async (req, res) => {
+  try {
+    const token = await getValidToken(req.athleteId);
+    await fetch("https://www.strava.com/oauth/deauthorize", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch (e) {
+    // token déjà invalide/révoqué : on supprime quand même nos données
+    console.error("deauthorize:", e.message);
+  }
+  await deleteAthleteData(req.athleteId);
   res.clearCookie("aid");
   res.json({ ok: true });
 });
@@ -479,13 +499,29 @@ app.get("/webhook/strava", (req, res) => {
   res.sendStatus(403);
 });
 
-// Événements : nouvelle activité -> on la traite automatiquement
+// Événements : création traitée automatiquement ; conformité accord API :
+// suppression et passage en privé d'une activité sont répercutés, et la
+// révocation de l'accès (settings/apps sur Strava) efface toutes les
+// données de l'athlète.
 app.post("/webhook/strava", async (req, res) => {
   res.sendStatus(200); // répondre vite, traiter ensuite
   const ev = req.body;
   try {
-    if (ev?.object_type === "activity" && ev.aspect_type === "create") {
-      await enqueueSingleActivity(Number(ev.owner_id), Number(ev.object_id));
+    if (ev?.object_type === "activity") {
+      if (ev.aspect_type === "create") {
+        await enqueueSingleActivity(Number(ev.owner_id), Number(ev.object_id));
+      } else if (
+        ev.aspect_type === "delete" ||
+        (ev.aspect_type === "update" && ev.updates?.private === "true")
+      ) {
+        await removeActivity(Number(ev.owner_id), Number(ev.object_id));
+      }
+    } else if (
+      ev?.object_type === "athlete" &&
+      ev.aspect_type === "update" &&
+      ev.updates?.authorized === "false"
+    ) {
+      await deleteAthleteData(Number(ev.owner_id));
     }
   } catch (e) {
     console.error("webhook:", e.message);
