@@ -78,9 +78,17 @@
   .stat { flex: 1; background: rgba(15,110,86,.08); border-radius: 10px; padding: 8px 10px; }
   .stat b { display: block; font-size: 19px; font-variant-numeric: tabular-nums; color: #085041; }
   .stat i { font-style: normal; font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  /* Bouton officiel « Connect with Strava » (guidelines de marque Strava :
+     orange #FC5200, libellé anglais, logo — requis pour la revue API) */
   button.cta {
-    width: 100%; margin-top: 12px; padding: 12px; font-size: 15px; font-weight: 600;
-    color: #fff; background: #fc4c02; border: 0; border-radius: 10px; cursor: pointer;
+    width: 100%; margin-top: 12px; padding: 12px; font-size: 15px; font-weight: 700;
+    color: #fff; background: #fc5200; border: 0; border-radius: 6px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  #powered {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    margin-top: 14px; font-size: 12px; font-weight: 600; color: #fc5200;
+    text-decoration: none;
   }
   #level { margin-top: 12px; display: none; }
   #level .lvl-top { display: flex; align-items: center; justify-content: space-between; }
@@ -259,7 +267,10 @@
     <p id="progress-label">Synchronisation…</p>
   </div>
 
-  <button class="cta" id="connect">Se connecter avec Strava</button>
+  <button class="cta" id="connect">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="#fff" aria-hidden="true"><path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169"/></svg>
+    Connect with Strava
+  </button>
   <p class="free" id="welcome-free" style="display:none">Gratuit · connexion Strava en un clic · tes données restent à toi</p>
 
   <div id="clan">
@@ -280,6 +291,11 @@
   </div>
 
   <button id="logout" style="display:none">déconnexion</button>
+
+  <a id="powered" href="https://www.strava.com" target="_blank" rel="noopener">
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="#fc5200" aria-hidden="true"><path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169"/></svg>
+    Powered by Strava
+  </a>
 </div>
 
 <div id="countries-modal">
@@ -1511,6 +1527,12 @@ async function shareCard() {
   ctx.letterSpacing = "6px";
   ctx.fillText("TERRITOIRES", 60, H - 52);
   ctx.letterSpacing = "0px";
+
+  // attribution requise par les guidelines de marque Strava
+  ctx.font = "700 26px ui-sans-serif, system-ui";
+  ctx.fillStyle = "#fc5200";
+  const pbs = "POWERED BY STRAVA";
+  ctx.fillText(pbs, W - 60 - ctx.measureText(pbs).width, H - 52);
 
   c.toBlob(async (blob) => {
     const file = new File([blob], "territoires.png", { type: "image/png" });
