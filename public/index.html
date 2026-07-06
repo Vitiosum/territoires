@@ -1241,8 +1241,6 @@ async function refreshTerritory() {
     // en cas d'échec transitoire, on retentera à la prochaine ouverture
     if (ok) territoryPopulated = true;
     geo = await api("/api/territory");
-    refreshMap(); // les cases encerclées rejoignent aussi la carte perso
-    refreshStats();
   }
   if (!geo) return;
   for (const f of geo.features) f.properties.color = ownerColor(f.properties.owner, f.properties.mine);

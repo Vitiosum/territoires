@@ -11,6 +11,7 @@ import {
 } from "./lib/sync.js";
 import { tileToPolygon, tilesForTrack, decodePolyline, tileAreaKm2, tileCenter, ZOOM } from "./lib/tiles.js";
 import { countryOf } from "./lib/countries.js";
+import { fillEnclaves } from "./lib/enclaves.js";
 
 // L'auth repose entièrement sur le cookie signé : sans secret propre, on
 // refuse de démarrer (comme db.js pour l'URI) plutôt que d'utiliser un
@@ -505,5 +506,16 @@ process.on("uncaughtException", (e) => console.error("uncaughtException:", e));
 
 // --- Démarrage ---
 await migrate();
+// Les cases encerclées ne comptent plus dans la carte perso : on purge les
+// lignes enclave (les cases encerclées y avaient été versées avec le même
+// flag) puis on ressème aussitôt les petites enclaves légitimes (lacs…,
+// fillEnclaves plafonné à 20 cases). Idempotent, quelques ms par athlète.
+{
+  const { rows: allAthletes } = await pool.query("SELECT id FROM athletes");
+  await pool.query("DELETE FROM tiles WHERE enclave");
+  for (const a of allAthletes) {
+    await fillEnclaves(Number(a.id)).catch((e) => console.error("enclaves:", e.message));
+  }
+}
 await resumeInterrupted();
 app.listen(PORT, () => console.log(`Territoires sur :${PORT}`));
