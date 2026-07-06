@@ -272,6 +272,8 @@
     Connect with Strava
   </button>
   <p class="free" id="welcome-free" style="display:none">Gratuit · connexion Strava en un clic · tes données restent à toi</p>
+  <p class="free" id="consent" style="display:none">En te connectant, tu acceptes que ton prénom, ton rang et tes cases
+    conquises (jamais tes traces GPS) soient visibles des autres joueurs dans les classements et sur la carte territoire.</p>
 
   <div id="clan">
     <h2 id="clan-title">Clan</h2>
@@ -1351,6 +1353,7 @@ async function boot() {
     $("connect").style.display = "block";
     $("welcome").style.display = "block";
     $("welcome-free").style.display = "block";
+    $("consent").style.display = "block";
     document.querySelector(".row").style.display = "none";
     const pub = await api("/api/leaderboard/public");
     if (pub?.top?.length) {
@@ -1370,6 +1373,7 @@ async function boot() {
   }
   $("welcome").style.display = "none";
   $("welcome-free").style.display = "none";
+  $("consent").style.display = "none";
   document.querySelector(".row").style.display = "flex";
   $("connect").style.display = "none";
   $("logout").style.display = "block";
