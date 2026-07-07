@@ -148,6 +148,23 @@
   #progress .bar { height: 6px; background: rgba(243, 236, 217, 0.09); border-radius: 3px; overflow: hidden; }
   #progress .fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--brand-deep), var(--brand)); transition: width .6s ease; }
   #progress p { font-size: 12px; color: var(--muted); margin-top: 5px; }
+  #sync-btn {
+    display: none; width: 100%; margin-top: 12px; padding: 10px; font-size: 13px;
+    font-weight: 600; border-radius: 10px; border: 1px solid rgba(47, 189, 143, 0.45);
+    background: rgba(47, 189, 143, 0.1); color: #7fe3c2; cursor: pointer;
+    transition: transform .15s, background .2s;
+  }
+  #sync-btn:hover { transform: translateY(-1px); background: rgba(47, 189, 143, 0.16); }
+  /* compte sans sorties : le telechargement devient l'action principale */
+  #sync-btn.hero {
+    padding: 14px; font-size: 15px; font-weight: 700; color: #08150f;
+    background: linear-gradient(160deg, #43d4a4, var(--brand)); border: 0;
+    animation: beckon 2.2s ease-in-out infinite;
+  }
+  @keyframes beckon {
+    0%, 100% { box-shadow: 0 6px 18px rgba(47, 189, 143, 0.25); }
+    50% { box-shadow: 0 6px 28px rgba(47, 189, 143, 0.55); }
+  }
 
   #clan { margin-top: 15px; border-top: 1px solid var(--line); padding-top: 12px; display: none; }
   #clan h2 { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
@@ -320,6 +337,8 @@
     <button id="countries-btn" title="Mes pays">🌍</button>
   </div>
   <div id="sheet-summary"></div>
+
+  <button id="sync-btn"><span aria-hidden="true">⤓</span> Récupérer mes sorties Strava</button>
 
   <div id="welcome">
     <p class="pitch">Connecte ton Strava et regarde chaque sortie <b>capturer des cases</b> sur la carte. Conquiers ton quartier, monte en rang, défie tes amis en clan.</p>
@@ -1425,6 +1444,7 @@ async function poll() {
   }
   const syncing = me.sync_status === "syncing" || me.sync_status === "queued";
   $("progress").style.display = syncing ? "block" : "none";
+  $("sync-btn").style.display = syncing ? "none" : "block";
   $("subtitle").textContent = syncing
     ? "On analyse où tu as voyagé… tes zones apparaissent en direct ✨"
     : "Ta carte de conquête";
@@ -1437,6 +1457,17 @@ async function poll() {
       "Bienvenue ! Laisse-nous quelques instants pour récupérer ton historique…";
   }
   await Promise.all([refreshStats(), refreshMap(), refreshSports(), refreshRanking()]).catch(() => {});
+  // Compte sans sorties (sync interrompue, nouveau venu) : le bouton de
+  // recuperation devient l'action principale, bien visible - et sur mobile
+  // on deplie la feuille pour qu'il ne passe pas inapercu.
+  if (!syncing) {
+    const acts = Number(lastStats?.activities ?? -1);
+    $("sync-btn").classList.toggle("hero", acts === 0);
+    $("sync-btn").innerHTML = acts === 0
+      ? '<span aria-hidden="true">\u2913</span> R\u00e9cup\u00e9rer mes sorties Strava'
+      : '<span aria-hidden="true">\u2913</span> Resynchroniser mes sorties Strava';
+    if (acts === 0 && innerWidth <= 640) $("panel").classList.add("expanded");
+  }
   if (syncing) {
     // la carte se révèle en direct : on recharge les traces pendant la sync
     api("/api/activities").then((rows) => {
@@ -1445,6 +1476,19 @@ async function poll() {
     pollTimer = setTimeout(poll, 8000);
   }
 }
+
+$("sync-btn").onclick = async () => {
+  const btn = $("sync-btn");
+  btn.disabled = true;
+  btn.textContent = "Connexion \u00e0 Strava\u2026";
+  await api("/api/sync", { method: "POST" });
+  btn.disabled = false;
+  btn.style.display = "none";
+  $("progress").style.display = "block";
+  $("progress-label").textContent = "R\u00e9cup\u00e9ration de ton historique Strava\u2026";
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(poll, 1500);
+};
 
 // Bottom-sheet mobile : la poignée ouvre/ferme, le résumé replié ouvre,
 // un tap sur la carte replie (la carte reste le cœur de l'app)
