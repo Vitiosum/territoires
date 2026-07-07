@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "territoires",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "POSTGRESQL_ADDON_URI=postgres://localhost:5432/territoires",
+        "APP_SECRET=dev",
+        "PORT=8080",
+        "node",
+        "server.js"
+      ],
+      "port": 8080
+    }
+  ]
+}
