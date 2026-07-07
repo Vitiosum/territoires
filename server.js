@@ -67,13 +67,14 @@ app.get("/auth/callback", async (req, res) => {
     const t = await exchangeCode(req.query.code);
     const a = t.athlete;
     await pool.query(
-      `INSERT INTO athletes (id, firstname, lastname, profile, access_token, refresh_token, expires_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
+      `INSERT INTO athletes (id, firstname, lastname, profile, sex, access_token, refresh_token, expires_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
        ON CONFLICT (id) DO UPDATE SET
          firstname=EXCLUDED.firstname, lastname=EXCLUDED.lastname, profile=EXCLUDED.profile,
+         sex=coalesce(EXCLUDED.sex, athletes.sex),
          access_token=EXCLUDED.access_token, refresh_token=EXCLUDED.refresh_token,
          expires_at=EXCLUDED.expires_at`,
-      [a.id, a.firstname, a.lastname, a.profile, t.access_token, t.refresh_token, t.expires_at]
+      [a.id, a.firstname, a.lastname, a.profile, a.sex || null, t.access_token, t.refresh_token, t.expires_at]
     );
     res.cookie("aid", String(a.id), {
       signed: true,
@@ -114,14 +115,36 @@ app.post("/api/me/delete", requireAuth, async (req, res) => {
 });
 
 // --- API ---
+const sexBackfillTried = new Set(); // un seul essai par athlète et par process
 app.get("/api/me", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT id, firstname, lastname, profile, sync_status, sync_done, sync_total
+    `SELECT id, firstname, lastname, profile, sex, sync_status, sync_done, sync_total
      FROM athletes WHERE id=$1`,
     [req.athleteId]
   );
   if (!rows.length) return res.status(401).json({ error: "unknown" });
-  res.json(rows[0]);
+  const me = rows[0];
+  // comptes connectés avant l'ajout de la colonne : on récupère le sexe
+  // une fois auprès de Strava, sans exiger de reconnexion
+  if (!me.sex && !sexBackfillTried.has(req.athleteId)) {
+    sexBackfillTried.add(req.athleteId);
+    try {
+      const token = await getValidToken(req.athleteId);
+      const r = await fetch("https://www.strava.com/api/v3/athlete", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (r.ok) {
+        const a = await r.json();
+        if (a.sex) {
+          await pool.query("UPDATE athletes SET sex=$1 WHERE id=$2", [a.sex, req.athleteId]);
+          me.sex = a.sex;
+        }
+      }
+    } catch (e) {
+      console.error("sex backfill:", e.message);
+    }
+  }
+  res.json(me);
 });
 
 app.post("/api/sync", requireAuth, (req, res) => {
@@ -264,7 +287,7 @@ app.get("/api/countries", requireAuth, async (req, res) => {
 // Top public pour l'écran d'accueil (prénom + initiale, sans auth)
 app.get("/api/leaderboard/public", async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT a.firstname, a.lastname,
+    `SELECT a.firstname, a.lastname, a.sex,
        (SELECT count(*)::int FROM tiles t WHERE t.athlete_id=a.id) AS tiles
      FROM athletes a ORDER BY tiles DESC, a.id LIMIT 5`
   );
@@ -275,6 +298,7 @@ app.get("/api/leaderboard/public", async (req, res) => {
       .map((r) => ({
         name: `${r.firstname || ""} ${(r.lastname || "").slice(0, 1)}${r.lastname ? "." : ""}`.trim(),
         tiles: r.tiles,
+        sex: r.sex,
       })),
     players: n[0].n,
   });
@@ -283,7 +307,7 @@ app.get("/api/leaderboard/public", async (req, res) => {
 // Classement global joueurs : top 10 + ta position, en % du leader
 app.get("/api/leaderboard", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT a.id, a.firstname, a.lastname,
+    `SELECT a.id, a.firstname, a.lastname, a.sex,
        (SELECT count(*)::int FROM tiles t WHERE t.athlete_id=a.id) AS tiles
      FROM athletes a
      ORDER BY tiles DESC, a.id
@@ -339,14 +363,14 @@ app.post("/api/territory/refresh", requireAuth, async (req, res) => {
 // Classement territoire : surface détenue par athlète (cases + km²)
 app.get("/api/leaderboard/territory", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT t.owner_id, a.firstname, a.lastname, t.x, t.y, t.z
+    `SELECT t.owner_id, a.firstname, a.lastname, a.sex, t.x, t.y, t.z
      FROM territory t JOIN athletes a ON a.id = t.owner_id`
   );
   const by = new Map();
   for (const t of rows) {
     const id = Number(t.owner_id);
     if (!by.has(id))
-      by.set(id, { id, name: `${t.firstname || ""} ${t.lastname || ""}`.trim(), tiles: 0, area_km2: 0 });
+      by.set(id, { id, name: `${t.firstname || ""} ${t.lastname || ""}`.trim(), sex: t.sex, tiles: 0, area_km2: 0 });
     const o = by.get(id);
     o.tiles++;
     o.area_km2 += tileAreaKm2(t.x, t.y, t.z);
@@ -466,7 +490,7 @@ app.get("/api/clans/me", requireAuth, async (req, res) => {
   if (!cl.length) return res.json(null);
   const clan = cl[0];
   const { rows: board } = await pool.query(
-    `SELECT a.id, a.firstname, a.lastname,
+    `SELECT a.id, a.firstname, a.lastname, a.sex,
        coalesce((SELECT sum(distance_m) FROM activities WHERE athlete_id=a.id),0)::float AS km_m,
        (SELECT count(*)::int FROM tiles WHERE athlete_id=a.id) AS tiles
      FROM clan_members m JOIN athletes a ON a.id = m.athlete_id
@@ -477,7 +501,7 @@ app.get("/api/clans/me", requireAuth, async (req, res) => {
   // (première conquête), territoire pris — pour dynamiser le clan au-delà
   // des totaux cumulés.
   const { rows: weekly } = await pool.query(
-    `SELECT a.id, a.firstname, a.lastname,
+    `SELECT a.id, a.firstname, a.lastname, a.sex,
        coalesce(sum(act.distance_m), 0)::float AS week_m,
        coalesce(max(act.distance_m), 0)::float AS longest_m,
        (SELECT count(*)::int FROM tiles t JOIN activities fa ON fa.id = t.first_activity_id
@@ -488,7 +512,7 @@ app.get("/api/clans/me", requireAuth, async (req, res) => {
      JOIN athletes a ON a.id = m.athlete_id
      LEFT JOIN activities act ON act.athlete_id = a.id AND act.start_date >= date_trunc('week', now())
      WHERE m.clan_id=$1
-     GROUP BY a.id, a.firstname, a.lastname`,
+     GROUP BY a.id, a.firstname, a.lastname, a.sex`,
     [clan.id]
   );
   res.json({ ...clan, members: board, weekly });
