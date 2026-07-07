@@ -119,7 +119,7 @@
     display: none; width: 100%; margin-top: 6px; padding: 6px; font-size: 12px;
     color: #e08b7f; background: none; border: 0; cursor: pointer; text-decoration: underline;
   }
-  #strava-profile { color: #fc7433; font-size: 11.5px; font-weight: 600; text-decoration: none; display: none; letter-spacing: 0; text-transform: none; }
+  #strava-profile { display: none; margin-top: 10px; font-size: 12px; color: #fc7433; text-decoration: underline; }
   #powered {
     display: flex; align-items: center; justify-content: center; gap: 6px;
     margin-top: 14px; font-size: 12px; font-weight: 600; color: #fc7433;
@@ -148,19 +148,18 @@
   #progress .bar { height: 6px; background: rgba(243, 236, 217, 0.09); border-radius: 3px; overflow: hidden; }
   #progress .fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--brand-deep), var(--brand)); transition: width .6s ease; }
   #progress p { font-size: 12px; color: var(--muted); margin-top: 5px; }
+  /* n'apparait que pour un compte sans sorties : l'action principale */
   #sync-btn {
-    display: none; width: 100%; margin-top: 12px; padding: 10px; font-size: 13px;
-    font-weight: 600; border-radius: 10px; border: 1px solid rgba(47, 189, 143, 0.45);
-    background: rgba(47, 189, 143, 0.1); color: #7fe3c2; cursor: pointer;
-    transition: transform .15s, background .2s;
-  }
-  #sync-btn:hover { transform: translateY(-1px); background: rgba(47, 189, 143, 0.16); }
-  /* compte sans sorties : le telechargement devient l'action principale */
-  #sync-btn.hero {
-    padding: 14px; font-size: 15px; font-weight: 700; color: #08150f;
-    background: linear-gradient(160deg, #43d4a4, var(--brand)); border: 0;
+    display: none; width: 100%; margin-top: 12px; padding: 14px; font-size: 15px;
+    font-weight: 700; border-radius: 10px; border: 0; cursor: pointer;
+    color: #08150f; background: linear-gradient(160deg, #43d4a4, var(--brand));
     animation: beckon 2.2s ease-in-out infinite;
+    transition: transform .15s;
   }
+  #sync-btn:hover { transform: translateY(-1px); }
+  /* resynchronisation : lien discret en fin de profil (le webhook recupere
+     deja les nouvelles sorties tout seul, ce n'est qu'un filet de secours) */
+  #resync { all: unset; display: block; margin-top: 12px; font-size: 12px; color: var(--muted); cursor: pointer; text-decoration: underline; }
   @keyframes beckon {
     0%, 100% { box-shadow: 0 6px 18px rgba(47, 189, 143, 0.25); }
     50% { box-shadow: 0 6px 28px rgba(47, 189, 143, 0.55); }
@@ -332,13 +331,12 @@
   <div id="sheet-handle" title="Ouvrir / fermer"></div>
   <div class="head">
     <img id="avatar" alt="">
-    <div><b id="name">Territoires</b><span id="subtitle">Chaque sortie capture des cases.</span>
-      <a id="strava-profile" href="https://www.strava.com" target="_blank" rel="noopener">Voir sur Strava ↗</a></div>
+    <div><b id="name">Territoires</b><span id="subtitle">Chaque sortie capture des cases.</span></div>
     <button id="countries-btn" title="Mes pays">🌍</button>
   </div>
   <div id="sheet-summary"></div>
 
-  <button id="sync-btn"><span aria-hidden="true">⤓</span> Récupérer mes sorties Strava</button>
+  <button id="sync-btn"><span aria-hidden="true">⤓</span> Synchroniser mes sorties Strava</button>
 
   <div id="welcome">
     <p class="pitch">Connecte ton Strava et regarde chaque sortie <b>capturer des cases</b> sur la carte. Conquiers ton quartier, monte en rang, défie tes amis en clan.</p>
@@ -416,6 +414,8 @@
     </div>
   </div>
 
+  <button id="resync" style="display:none">⟳ Resynchroniser mes sorties Strava</button>
+  <a id="strava-profile" href="https://www.strava.com" target="_blank" rel="noopener">Voir mon profil sur Strava ↗</a>
   <button id="logout" style="display:none">déconnexion</button>
   <button id="delete-account">Supprimer mon compte et toutes mes données</button>
 
@@ -1444,7 +1444,7 @@ async function poll() {
   }
   const syncing = me.sync_status === "syncing" || me.sync_status === "queued";
   $("progress").style.display = syncing ? "block" : "none";
-  $("sync-btn").style.display = syncing ? "none" : "block";
+  if (syncing) { $("sync-btn").style.display = "none"; $("resync").style.display = "none"; }
   $("subtitle").textContent = syncing
     ? "On analyse où tu as voyagé… tes zones apparaissent en direct ✨"
     : "Ta carte de conquête";
@@ -1457,15 +1457,14 @@ async function poll() {
       "Bienvenue ! Laisse-nous quelques instants pour récupérer ton historique…";
   }
   await Promise.all([refreshStats(), refreshMap(), refreshSports(), refreshRanking()]).catch(() => {});
-  // Compte sans sorties (sync interrompue, nouveau venu) : le bouton de
-  // recuperation devient l'action principale, bien visible - et sur mobile
-  // on deplie la feuille pour qu'il ne passe pas inapercu.
+  // Compte sans sorties (sync interrompue, nouveau venu) : le bouton
+  // Synchroniser est LA seule action mise en avant - et sur mobile on
+  // deplie la feuille pour qu'il ne passe pas inapercu. Avec des donnees,
+  // il disparait : il reste un lien discret en fin de profil.
   if (!syncing) {
     const acts = Number(lastStats?.activities ?? -1);
-    $("sync-btn").classList.toggle("hero", acts === 0);
-    $("sync-btn").innerHTML = acts === 0
-      ? '<span aria-hidden="true">\u2913</span> R\u00e9cup\u00e9rer mes sorties Strava'
-      : '<span aria-hidden="true">\u2913</span> Resynchroniser mes sorties Strava';
+    $("sync-btn").style.display = acts === 0 ? "block" : "none";
+    $("resync").style.display = acts > 0 ? "block" : "none";
     if (acts === 0 && innerWidth <= 640) $("panel").classList.add("expanded");
   }
   if (syncing) {
@@ -1477,18 +1476,17 @@ async function poll() {
   }
 }
 
-$("sync-btn").onclick = async () => {
-  const btn = $("sync-btn");
-  btn.disabled = true;
-  btn.textContent = "Connexion \u00e0 Strava\u2026";
-  await api("/api/sync", { method: "POST" });
-  btn.disabled = false;
-  btn.style.display = "none";
+async function startSync() {
+  $("sync-btn").style.display = "none";
+  $("resync").style.display = "none";
   $("progress").style.display = "block";
   $("progress-label").textContent = "R\u00e9cup\u00e9ration de ton historique Strava\u2026";
+  await api("/api/sync", { method: "POST" });
   clearTimeout(pollTimer);
   pollTimer = setTimeout(poll, 1500);
-};
+}
+$("sync-btn").onclick = startSync;
+$("resync").onclick = startSync;
 
 // Bottom-sheet mobile : la poignée ouvre/ferme, le résumé replié ouvre,
 // un tap sur la carte replie (la carte reste le cœur de l'app)
@@ -1533,7 +1531,7 @@ async function boot() {
   $("logout").style.display = "block";
   $("delete-account").style.display = "block";
   $("strava-profile").href = "https://www.strava.com/athletes/" + me.id;
-  $("strava-profile").style.display = "inline-block";
+  $("strava-profile").style.display = "block";
   $("period-tabs").style.display = "flex";
   $("view-tabs").style.display = "flex";
   $("territory-toggle").style.display = "block";
