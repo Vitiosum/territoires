@@ -453,8 +453,29 @@
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script>
-// Couleurs par sport : palette fixe très contrastée, attribuée dans l'ordre de fréquence
-const PALETTE = ["#1E9E4F", "#E23A3A", "#2E71F0", "#F5A623", "#8E3AE2", "#00A3A3", "#E24A9B", "#7A4E1D"];
+// Couleur FIXE par sport : l'identité suit le sport, jamais son rang de
+// fréquence (l'ancienne palette de 8 bouclait -> Run et Workout finissaient
+// avec le même rouge dès 9 sports). Palette validée daltonisme + contraste
+// sur fond carte clair et panneau sombre (pire paire CVD adjacente : 16,9).
+const SPORT_COLORS = {
+  Ride: "#1f9d55",            // vert
+  Run: "#e04343",             // rouge
+  Walk: "#3b7ff0",            // bleu
+  VirtualRide: "#df8e0a",     // ambre
+  Workout: "#9333ea",         // violet
+  Swim: "#189fc4",            // cyan
+  Hike: "#9c5a17",            // brun
+  WeightTraining: "#e560a8",  // rose
+  Tennis: "#82a80f",          // lime
+  StandUpPaddling: "#6467f2", // indigo
+  EBikeRide: "#0f9179",       // teal
+  Sail: "#1d74c4",            // marine
+  TrailRun: "#e8650d",        // orange vif
+  Yoga: "#c026d3",            // fuchsia
+  Autre: "#64748b",           // gris ardoise (sport inconnu de Strava)
+};
+// sports non prévus : première couleur de la palette pas encore utilisée
+const PALETTE = ["#1f9d55", "#e04343", "#3b7ff0", "#df8e0a", "#9333ea", "#189fc4", "#9c5a17", "#e560a8", "#82a80f", "#6467f2", "#0f9179", "#1d74c4", "#e8650d", "#c026d3", "#64748b", "#b45309"];
 const sportColors = {};
 let hiddenSports = new Set();
 let metric = "km";
@@ -603,8 +624,12 @@ async function api(path, opts) {
 }
 
 function colorFor(sport) {
+  if (SPORT_COLORS[sport]) return SPORT_COLORS[sport];
   if (!sportColors[sport]) {
-    sportColors[sport] = PALETTE[Object.keys(sportColors).length % PALETTE.length];
+    const used = new Set([...Object.values(SPORT_COLORS), ...Object.values(sportColors)]);
+    // palette épuisée : teinte générée par angle d'or, jamais de doublon
+    sportColors[sport] = PALETTE.find((c) => !used.has(c)) ||
+      `hsl(${Math.round((used.size * 137.5) % 360)} 62% 46%)`;
   }
   return sportColors[sport];
 }
