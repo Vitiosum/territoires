@@ -218,14 +218,23 @@
   .lb-row.me .who, .lb-row.me .val { font-weight: 600; color: var(--brand); }
   .lb-sep { text-align: center; color: var(--muted); font-size: 12px; padding: 2px 0; }
 
-  button.share {
-    width: 100%; margin-top: 13px; padding: 12px; font-size: 14px; font-weight: 600;
-    color: #08150f; background: linear-gradient(160deg, #43d4a4, var(--brand)); border: 0;
-    border-radius: 10px; cursor: pointer; display: none;
-    box-shadow: 0 6px 18px rgba(47, 189, 143, 0.28);
-    transition: transform .15s, box-shadow .2s;
+  /* partage : simple icône dans l'en-tête, pas une action prioritaire */
+  #share {
+    margin-left: 8px; width: 36px; height: 36px; border-radius: 50%;
+    border: 1px solid var(--line); background: rgba(243, 236, 217, 0.05);
+    color: var(--muted); cursor: pointer; display: none; flex: none;
+    align-items: center; justify-content: center;
+    transition: border-color .2s, transform .2s, color .2s;
   }
-  button.share:hover { transform: translateY(-1px); box-shadow: 0 9px 24px rgba(47, 189, 143, 0.36); }
+  #share:hover { border-color: var(--brass-dim); color: var(--paper); transform: translateY(-1px); }
+
+  /* défis de la semaine (clan) : mini-podiums qui tournent chaque lundi */
+  #weekly h3 { font-size: 10.5px; color: var(--brass); text-transform: uppercase; letter-spacing: .18em; margin-top: 15px; font-weight: 600; }
+  .wk { margin-top: 8px; padding: 9px 11px; background: rgba(243, 236, 217, 0.04); border: 1px solid var(--line); border-radius: 10px; }
+  .wk h4 { font-size: 11.5px; font-weight: 600; color: var(--paper); }
+  .wk .member { padding: 4px 0; border-top: 0; font-size: 12.5px; }
+  .wk .member .rank { width: 20px; }
+  .wk .empty { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
 
   .maplibregl-popup-content {
     font: 13px "Archivo", ui-sans-serif, system-ui;
@@ -333,6 +342,7 @@
     <img id="avatar" alt="">
     <div><b id="name">Territoires</b><span id="subtitle">Chaque sortie capture des cases.</span></div>
     <button id="countries-btn" title="Mes pays">🌍</button>
+    <button id="share" title="Partager ma carte"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg></button>
   </div>
   <div id="sheet-summary"></div>
 
@@ -382,8 +392,6 @@
     <div id="lb-rows"></div>
   </div>
 
-  <button class="share" id="share">Partager ma carte</button>
-
   <div id="progress">
     <div class="bar"><div class="fill" id="fill"></div></div>
     <p id="progress-label">Synchronisation…</p>
@@ -404,6 +412,7 @@
       <button id="tab-tiles">Cases conquises</button>
     </div>
     <div id="board"></div>
+    <div id="weekly"></div>
     <div id="clan-forms">
       <input id="clan-name" placeholder="Nom du clan à créer">
       <button id="create-clan">Créer mon clan</button>
@@ -1293,6 +1302,7 @@ async function refreshClan() {
     $("clan-title").textContent = "Pas encore de clan";
     $("clan-forms").style.display = "block";
     $("board").innerHTML = "";
+    $("weekly").innerHTML = "";
     document.querySelector("#clan .tabs").style.display = "none";
     return;
   }
@@ -1321,6 +1331,28 @@ async function refreshClan() {
       </div>`
     )
     .join("");
+
+  // Défis de la semaine : mini-podiums remis à zéro chaque lundi, pour
+  // donner une chance à tout le monde face aux gros totaux cumulés.
+  const week = clan.weekly || [];
+  const shortName = (m) => `${m.firstname || ""} ${(m.lastname || "").slice(0, 1)}${m.lastname ? "." : ""}`.trim();
+  const kmFmt = (v) => (v / 1000).toLocaleString("fr-FR", { maximumFractionDigits: 1 }) + " km";
+  const nFmt = (u) => (v) => v.toLocaleString("fr-FR") + " " + u;
+  const podium = (title, fmt, get) => {
+    const top = week.filter((m) => get(m) > 0).sort((a, b) => get(b) - get(a)).slice(0, 3);
+    const inner = top.length
+      ? top.map((m, i) => `
+        <div class="member"><span class="rank">${["🥇", "🥈", "🥉"][i]}</span>
+        <span class="who">${esc(shortName(m))}</span><span class="val">${fmt(get(m))}</span></div>`).join("")
+      : '<p class="empty">à prendre — personne encore cette semaine</p>';
+    return `<div class="wk"><h4>${title}</h4>${inner}</div>`;
+  };
+  $("weekly").innerHTML =
+    "<h3>Défis de la semaine</h3>" +
+    podium("🚴 Le plus de kilomètres", kmFmt, (m) => m.week_m) +
+    podium("🗺️ Nouvelles cases conquises", nFmt("cases"), (m) => m.new_tiles) +
+    podium("🏰 Territoire pris", nFmt("cases"), (m) => m.territory) +
+    podium("💪 La plus longue sortie", kmFmt, (m) => m.longest_m);
 }
 
 $("view-fog").onclick = () => {

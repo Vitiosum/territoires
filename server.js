@@ -473,7 +473,25 @@ app.get("/api/clans/me", requireAuth, async (req, res) => {
      WHERE m.clan_id=$1`,
     [clan.id]
   );
-  res.json({ ...clan, members: board });
+  // Tops hebdo (depuis lundi) : km, plus longue sortie, nouvelles cases
+  // (première conquête), territoire pris — pour dynamiser le clan au-delà
+  // des totaux cumulés.
+  const { rows: weekly } = await pool.query(
+    `SELECT a.id, a.firstname, a.lastname,
+       coalesce(sum(act.distance_m), 0)::float AS week_m,
+       coalesce(max(act.distance_m), 0)::float AS longest_m,
+       (SELECT count(*)::int FROM tiles t JOIN activities fa ON fa.id = t.first_activity_id
+         WHERE t.athlete_id = a.id AND fa.start_date >= date_trunc('week', now())) AS new_tiles,
+       (SELECT count(*)::int FROM territory te
+         WHERE te.owner_id = a.id AND te.captured_at >= date_trunc('week', now())) AS territory
+     FROM clan_members m
+     JOIN athletes a ON a.id = m.athlete_id
+     LEFT JOIN activities act ON act.athlete_id = a.id AND act.start_date >= date_trunc('week', now())
+     WHERE m.clan_id=$1
+     GROUP BY a.id, a.firstname, a.lastname`,
+    [clan.id]
+  );
+  res.json({ ...clan, members: board, weekly });
 });
 
 // Traces des activités (polylines encodées, décodées côté client)
