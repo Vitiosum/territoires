@@ -78,6 +78,27 @@
   .country-line { display: flex; gap: 8px; align-items: baseline; }
   .country-line .who { flex: 1; }
   .country-line .val { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  #spectate-bar {
+    position: fixed; top: max(16px, env(safe-area-inset-top)); left: 50%;
+    transform: translateX(-50%); z-index: 20; display: none;
+    align-items: center; gap: 10px; padding: 8px 10px 8px 16px;
+    background: linear-gradient(172deg, rgba(14, 38, 31, 0.94), rgba(8, 23, 19, 0.92));
+    border: 1px solid var(--brass-dim); border-radius: 99px;
+    box-shadow: 0 12px 34px rgba(5, 15, 12, 0.5); font-size: 13px; color: var(--paper);
+    backdrop-filter: blur(10px);
+  }
+  #spectate-bar button {
+    border: 0; border-radius: 99px; padding: 6px 12px; font-size: 12px; font-weight: 600;
+    background: var(--paper); color: #11271f; cursor: pointer;
+  }
+  .member.mate { cursor: pointer; }
+  .member.mate:hover .who { color: var(--brand); }
+  .member .peek { color: var(--muted); font-size: 11px; flex: none; margin-left: 6px; }
+  #clan-invite {
+    margin-left: auto; border: 1px solid rgba(47, 189, 143, 0.45); border-radius: 99px;
+    background: rgba(47, 189, 143, 0.1); color: #7fe3c2; font-size: 11.5px; font-weight: 600;
+    padding: 3px 11px; cursor: pointer; flex: none;
+  }
   .rank-title {
     font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
     padding: 2px 8px; border-radius: 99px; flex: none;
@@ -345,6 +366,11 @@
 </head>
 <body>
 <div id="map"></div>
+
+<div id="spectate-bar">
+  <span id="spectate-name">👀</span>
+  <button id="spectate-exit">✕ ma carte</button>
+</div>
 
 <div id="panel">
   <div id="sheet-handle" title="Ouvrir / fermer"></div>
@@ -1072,9 +1098,37 @@ function pointInRing(x, y, ring) {
   return inside;
 }
 
+// --- Mode spectateur : la carte d'un coéquipier (lecture seule, clan) ---
+let spectating = null;
+async function spectate(id, name) {
+  const t = await api(`/api/clans/member/${id}/tiles`);
+  if (!t) return;
+  spectating = { id, name };
+  tilesData = t;
+  // ses zones se lisent sans ses traces GPS : on force la vue Couleurs
+  if (territoryMode) { territoryMode = false; $("territory-toggle").classList.remove("on"); }
+  if (fogMode) {
+    fogMode = false;
+    $("view-colors").classList.add("on");
+    $("view-fog").classList.remove("on");
+  }
+  applyViewMode();
+  applyFilter();
+  if (t.features.length) map.fitBounds(denseBounds(t.features), { padding: 70, maxZoom: 12 });
+  $("spectate-name").textContent = `👀 Carte de ${name}`;
+  $("spectate-bar").style.display = "flex";
+  $("panel").classList.remove("expanded");
+}
+$("spectate-exit").onclick = async () => {
+  spectating = null;
+  $("spectate-bar").style.display = "none";
+  await refreshMap(); // recharge mes cases et re-rend
+};
+
 let periodSince = null; // null = tout l'historique, sinon "YYYY-MM-DD"
 
 async function refreshMap() {
+  if (spectating) return; // on est sur la carte d'un coéquipier
   const tiles = await api("/api/tiles" + (periodSince ? `?since=${periodSince}` : ""));
   if (!tiles) return;
   tilesData = tiles;
@@ -1274,9 +1328,27 @@ async function refreshClan() {
   $("clan-forms").style.display = "none";
   document.querySelector("#clan .tabs").style.display = "flex";
   $("clan-title").innerHTML =
-    `Clan · ${esc(clan.name)} <span class="code">code : ${esc(clan.invite_code)}</span>`;
+    `Clan · ${esc(clan.name)} <button id="clan-invite">🔗 Inviter</button>`;
+  // Lien d'invitation : une URL à partager, le clan se rejoint tout seul
+  // (même avant connexion : le code est retenu jusqu'à l'OAuth).
+  $("clan-invite").onclick = async () => {
+    const link = `${location.origin}/?clan=${encodeURIComponent(clan.invite_code)}`;
+    const msg = `Rejoins mon clan « ${clan.name} » sur Territoires !`;
+    if (navigator.share) {
+      try { await navigator.share({ title: "Territoires", text: msg, url: link }); return; } catch {}
+    }
+    try {
+      await navigator.clipboard.writeText(`${msg} ${link}`);
+      $("clan-invite").textContent = "✓ Lien copié";
+      setTimeout(() => ($("clan-invite").textContent = "🔗 Inviter"), 2000);
+    } catch {
+      prompt("Copie ce lien d'invitation :", link);
+    }
+  };
+  const myId = Number(($("strava-profile").href.match(/athletes\/(\d+)/) || [])[1]);
   const rows = clan.members
     .map((m) => ({
+      id: Number(m.id),
       name: `${m.firstname} ${m.lastname ?? ""}`.trim(),
       sex: m.sex,
       km: Math.round(m.km_m / 1000),
@@ -1286,9 +1358,9 @@ async function refreshClan() {
   $("board").innerHTML = rows
     .map(
       (m, i) => `
-      <div class="member">
+      <div class="member${m.id !== myId ? " mate" : ""}" data-id="${m.id}" data-name="${esc(m.name)}">
         <span class="rank">${i + 1}</span>
-        <span class="who">${esc(m.name)}${sexGlyph(m.sex)}</span>
+        <span class="who">${esc(m.name)}${sexGlyph(m.sex)}${m.id !== myId ? '<span class="peek">👀 voir sa carte</span>' : ""}</span>
         <span class="val">${
           metric === "km"
             ? m.km.toLocaleString("fr-FR") + " km"
@@ -1297,6 +1369,9 @@ async function refreshClan() {
       </div>`
     )
     .join("");
+  for (const el of document.querySelectorAll("#board .member.mate")) {
+    el.onclick = () => spectate(Number(el.dataset.id), el.dataset.name);
+  }
 
   // Défis de la semaine : mini-podiums remis à zéro chaque lundi, pour
   // donner une chance à tout le monde face aux gros totaux cumulés.
@@ -1511,6 +1586,15 @@ map.on("click", () => {
   if (innerWidth <= 640) $("panel").classList.remove("expanded");
 });
 
+// Lien d'invitation ?clan=CODE : retenu jusqu'à la connexion s'il le faut
+{
+  const urlClan = new URLSearchParams(location.search).get("clan");
+  if (urlClan) {
+    localStorage.setItem("pendingClan", urlClan);
+    history.replaceState(null, "", "/");
+  }
+}
+
 async function boot() {
   const me = await api("/api/me");
   if (!me) {
@@ -1522,6 +1606,15 @@ async function boot() {
     $("welcome-free").style.display = "block";
     $("consent").style.display = "block";
     document.querySelector(".row").style.display = "none";
+    const pendingWelcome = localStorage.getItem("pendingClan");
+    if (pendingWelcome) {
+      const info = await api(`/api/clans/info?code=${encodeURIComponent(pendingWelcome)}`);
+      if (info?.name) {
+        $("welcome-join").textContent = `🛡️ Tu vas rejoindre le clan « ${info.name} » — connecte-toi pour entrer.`;
+      } else {
+        localStorage.removeItem("pendingClan"); // code invalide : on oublie
+      }
+    }
     const pub = await api("/api/leaderboard/public");
     if (pub?.top?.length) {
       const medals = ["🥇", "🥈", "🥉", "4.", "5."];
@@ -1531,8 +1624,9 @@ async function boot() {
           <span class="who">${esc(p.name)}${sexGlyph(p.sex)}</span>
           <span class="val">${p.tiles.toLocaleString("fr-FR")} cases</span>
         </div>`).join("");
-      $("welcome-join").textContent =
-        `🏁 Déjà ${pub.players} explorateur${pub.players > 1 ? "s" : ""} — viens prendre leur place.`;
+      if (!localStorage.getItem("pendingClan"))
+        $("welcome-join").textContent =
+          `🏁 Déjà ${pub.players} explorateur${pub.players > 1 ? "s" : ""} — viens prendre leur place.`;
     } else {
       $("welcome-top-title").style.display = "none";
     }
@@ -1556,6 +1650,15 @@ async function boot() {
   $("name").textContent = `${me.firstname} ${me.lastname ?? ""}`;
   $("subtitle").textContent = "Ta carte de conquête";
   if (me.profile && me.profile.startsWith("http")) $("avatar").src = me.profile;
+  const pendingClan = localStorage.getItem("pendingClan");
+  if (pendingClan) {
+    localStorage.removeItem("pendingClan");
+    await api("/api/clans/join", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: pendingClan }),
+    });
+  }
   refreshClan();
   poll(me); // couvre aussi le premier refreshRanking (dans son Promise.all)
   // traces GPS pour le brouillard fin (rechargées pendant la sync par poll)

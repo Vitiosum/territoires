@@ -508,6 +508,49 @@ app.get("/api/sports", requireAuth, async (req, res) => {
   res.json(rows);
 });
 
+// Lignes tiles -> FeatureCollection MapLibre (partagé avec la vue coéquipier)
+function tilesToGeoJSON(rows) {
+  return {
+    type: "FeatureCollection",
+    features: rows.map((t) => ({
+      type: "Feature",
+      properties: t.enclave
+        ? { enclave: true, sports: [] }
+        : {
+            sport: t.sport_type || "Autre",
+            sports: t.sports?.length ? t.sports : [t.sport_type || "Autre"],
+          },
+      geometry: { type: "Polygon", coordinates: tileToPolygon(t.x, t.y, t.z) },
+    })),
+  };
+}
+
+// Carte d'un coéquipier : visible uniquement entre membres du MÊME clan
+// (contrôle côté serveur, pas seulement à l'affichage).
+app.get("/api/clans/member/:id/tiles", requireAuth, async (req, res) => {
+  const otherId = Number(req.params.id);
+  const { rows: same } = await pool.query(
+    `SELECT 1 FROM clan_members m1
+     JOIN clan_members m2 ON m2.clan_id = m1.clan_id
+     WHERE m1.athlete_id = $1 AND m2.athlete_id = $2 LIMIT 1`,
+    [req.athleteId, otherId]
+  );
+  if (!same.length) return res.status(403).json({ error: "not_clanmate" });
+  const { rows } = await pool.query(
+    "SELECT z, x, y, sport_type, sports, enclave FROM tiles WHERE athlete_id=$1",
+    [otherId]
+  );
+  res.json(tilesToGeoJSON(rows));
+});
+
+// Nom d'un clan par code d'invitation (lien de parrainage, avant connexion)
+app.get("/api/clans/info", async (req, res) => {
+  const code = (req.query.code || "").trim();
+  if (!code) return res.json(null);
+  const { rows } = await pool.query("SELECT name FROM clans WHERE invite_code=$1", [code]);
+  res.json(rows.length ? { name: rows[0].name } : null);
+});
+
 // Tuiles capturées -> GeoJSON pour MapLibre (avec le sport de capture).
 // ?since=YYYY-MM-DD : recalcule les cases depuis les traces des activités
 // de la période (ex. depuis le 1er janvier), sans toucher à l'historique.
@@ -546,19 +589,7 @@ app.get("/api/tiles", requireAuth, async (req, res) => {
     "SELECT z, x, y, sport_type, sports, enclave FROM tiles WHERE athlete_id=$1",
     [req.athleteId]
   );
-  res.json({
-    type: "FeatureCollection",
-    features: rows.map((t) => ({
-      type: "Feature",
-      properties: t.enclave
-        ? { enclave: true, sports: [] }
-        : {
-            sport: t.sport_type || "Autre",
-            sports: t.sports?.length ? t.sports : [t.sport_type || "Autre"],
-          },
-      geometry: { type: "Polygon", coordinates: tileToPolygon(t.x, t.y, t.z) },
-    })),
-  });
+  res.json(tilesToGeoJSON(rows));
 });
 
 // --- Clans ---
