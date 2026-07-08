@@ -140,6 +140,14 @@ app.get("/api/me", requireAuth, async (req, res) => {
   );
   if (!rows.length) return res.status(401).json({ error: "unknown" });
   const me = rows[0];
+  // Connexion = synchronisation : si la sync n'a jamais abouti (jamais
+  // lancée, ou terminée en erreur), on la relance automatiquement à
+  // l'ouverture de l'app — personne ne doit avoir à chercher un bouton
+  // pour voir sa carte. Les statuts queued/syncing/done ne relancent rien.
+  if (me.sync_status === "idle" || me.sync_status === "error") {
+    enqueueFullSync(req.athleteId);
+    me.sync_status = "queued";
+  }
   // comptes connectés avant l'ajout de la colonne : on récupère le sexe
   // une fois auprès de Strava, sans exiger de reconnexion
   if (!me.sex && !sexBackfillTried.has(req.athleteId)) {
