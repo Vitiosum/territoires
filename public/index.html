@@ -488,7 +488,8 @@ const map = new maplibregl.Map({
   container: "map",
   center: [2.2, 47.0],
   zoom: 5.3,
-  preserveDrawingBuffer: true, // nécessaire pour "Partager ma carte"
+  // pas de preserveDrawingBuffer (coût GPU par frame) : la capture de
+  // « Partager ma carte » se fait DANS une frame de rendu (voir shareCard)
   style: {
     version: 8,
     sources: {
@@ -617,6 +618,7 @@ function applyViewMode() {
   for (const id of ["territory-fill", "territory-line"])
     map.setLayoutProperty(id, "visibility", territoryMode ? "visible" : "none");
   $("view-tabs").style.opacity = territoryMode ? 0.4 : 1;
+  renderVisibleLayers(); // calcule la représentation devenue visible si périmée
 }
 
 async function api(path, opts) {
@@ -662,11 +664,17 @@ function ensurePattern(sports) {
   return id;
 }
 
+// Liste des sports en mémoire : le rendu des chips est pur DOM, un toggle
+// ne refait plus d'aller-retour réseau (les données n'ont pas changé).
+let sportsList = [];
 async function refreshSports() {
-  const sports = (await api("/api/sports")) || [];
+  sportsList = (await api("/api/sports")) || sportsList;
+  renderChips();
+}
+function renderChips() {
   const box = $("chips");
   box.innerHTML = "";
-  for (const s of sports) {
+  for (const s of sportsList) {
     const c = colorFor(s.sport_type);
     const el = document.createElement("button");
     el.className = "chip" + (hiddenSports.has(s.sport_type) ? "" : " on");
@@ -677,7 +685,7 @@ async function refreshSports() {
     }
     el.onclick = () => {
       hiddenSports.has(s.sport_type) ? hiddenSports.delete(s.sport_type) : hiddenSports.add(s.sport_type);
-      refreshSports();
+      renderChips();
       applyFilter();
     };
     box.appendChild(el);
@@ -715,41 +723,50 @@ function applyFilter() {
   }
   map.getSource("tiles")?.setData({ type: "FeatureCollection", features });
 
-  // Carte personnelle : brouillard fin le long des traces (ou contours des
-  // cases en repli). Le territoire partagé (turf war) est une couche séparée.
-  rebuildTraceCells();
-  const fogGeom = traceCells?.size ? fogFromTrace() : fogGeometry(features);
-  map.getSource("fog")?.setData({ type: "Feature", properties: {}, geometry: fogGeom });
-
-  // Zones colorées : mêmes contours arrondis que le brouillard, un
-  // polygone par groupe de sports (damier conservé pour les hybrides).
-  // L'union de toutes les cases est passée en `solid` : les frontières
-  // entre deux groupes (ex. case hybride contre case mono-sport) restent
-  // exactement partagées au lieu d'être arrondies chacune de son côté —
-  // sinon des trous apparaissent aux coins entre zones voisines.
-  const groupEntries = [...groups.values()];
-  const groupCells = groupEntries.map((feats) => conqueredCells(feats));
-  const solid = new Set();
-  for (const s of groupCells) for (const k of s) solid.add(k);
-  const zoneFeatures = groupEntries.map((feats, i) => {
-    const p = feats[0].properties;
-    return {
-      type: "Feature",
-      properties: { color: p.color, hybrid: p.hybrid, pattern: p.pattern },
-      geometry: zoneGeometry(groupCells[i], solid),
-    };
-  });
-  map.getSource("zones")?.setData({ type: "FeatureCollection", features: zoneFeatures });
+  // Rasterisation + lissage de Chaikin = la partie chère : on ne calcule
+  // que la représentation du mode VISIBLE (brouillard OU couleurs, rien en
+  // mode territoire) ; l'autre est marquée périmée et recalculée au switch.
+  lastFilter = { features, groups };
+  renderVisibleLayers();
 }
 
-// Affiche/masque le compteur de conquête d'aire sous le bouton du mode
-function showConquest(areaKm2) {
-  const el = $("conquest");
-  if (areaKm2 == null) { el.style.display = "none"; return; }
-  el.style.display = "block";
-  el.innerHTML = areaKm2 >= 0.5
-    ? `🏰 <b>+${Math.round(areaKm2).toLocaleString("fr-FR")} km²</b> conquis à l'intérieur de tes boucles`
-    : "Ferme une boucle pour conquérir tout l'intérieur.";
+// Chaque couche mémorise QUEL filtre elle a peint : la comparaison
+// d'identité rend l'invalidation automatique (pas de flag à maintenir).
+let lastFilter = null;
+let fogPainted = null, zonesPainted = null;
+function renderVisibleLayers() {
+  if (!lastFilter || territoryMode) return; // rien à peindre en mode turf
+  const { features, groups } = lastFilter;
+  if (fogMode && fogPainted !== lastFilter) {
+    // Carte personnelle : brouillard fin le long des traces (ou contours
+    // des cases en repli).
+    rebuildTraceCells();
+    const fogGeom = traceCells?.size ? fogFromTrace() : fogGeometry(features);
+    map.getSource("fog")?.setData({ type: "Feature", properties: {}, geometry: fogGeom });
+    fogPainted = lastFilter;
+  }
+  if (!fogMode && zonesPainted !== lastFilter) {
+    // Zones colorées : mêmes contours arrondis que le brouillard, un
+    // polygone par groupe de sports (damier conservé pour les hybrides).
+    // L'union de toutes les cases est passée en `solid` : les frontières
+    // entre deux groupes (ex. case hybride contre case mono-sport) restent
+    // exactement partagées au lieu d'être arrondies chacune de son côté —
+    // sinon des trous apparaissent aux coins entre zones voisines.
+    const groupEntries = [...groups.values()];
+    const groupCells = groupEntries.map((feats) => conqueredCells(feats));
+    const solid = new Set();
+    for (const cs of groupCells) for (const k of cs) solid.add(k);
+    const zoneFeatures = groupEntries.map((feats, i) => {
+      const p = feats[0].properties;
+      return {
+        type: "Feature",
+        properties: { color: p.color, hybrid: p.hybrid, pattern: p.pattern },
+        geometry: zoneGeometry(groupCells[i], solid),
+      };
+    });
+    map.getSource("zones")?.setData({ type: "FeatureCollection", features: zoneFeatures });
+    zonesPainted = lastFilter;
+  }
 }
 
 // Contours arrondis d'un ensemble de cases : on trace le contour de
@@ -779,71 +796,6 @@ function conqueredCells(features) {
 function roundedRings(features) {
   if (!features.length) return { outers: [], pockets: [] };
   return cellRings(conqueredCells(features), TILE_N, [0.4, 0.25, 0.25]);
-}
-
-// Mode Conquête : cases entièrement encerclées par le territoire (intérieur
-// des boucles), sans plafond de taille — un grand tour capture tout ce qu'il
-// entoure. Flood fill de l'extérieur depuis le cadre, le reste est l'intérieur.
-function interiorCells(cells) {
-  if (cells.size < 8) return new Set();
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const k of cells) {
-    const [x, y] = k.split(":").map(Number);
-    if (x < minX) minX = x; if (x > maxX) maxX = x;
-    if (y < minY) minY = y; if (y > maxY) maxY = y;
-  }
-  minX--; minY--; maxX++; maxY++;
-  const W = maxX - minX + 1, H = maxY - minY + 1;
-  if (W * H > 4_000_000) return new Set(); // garde-fou perf
-  const grid = new Uint8Array(W * H); // 0 libre, 1 conquis, 2 relié à l'extérieur
-  for (const k of cells) {
-    const [x, y] = k.split(":").map(Number);
-    grid[(y - minY) * W + (x - minX)] = 1;
-  }
-  const q = [];
-  for (let x = 0; x < W; x++) {
-    if (!grid[x]) { grid[x] = 2; q.push(x); }
-    const b = (H - 1) * W + x;
-    if (!grid[b]) { grid[b] = 2; q.push(b); }
-  }
-  for (let y = 0; y < H; y++) {
-    const l = y * W;
-    if (!grid[l]) { grid[l] = 2; q.push(l); }
-    const r = y * W + W - 1;
-    if (!grid[r]) { grid[r] = 2; q.push(r); }
-  }
-  while (q.length) {
-    const i = q.pop(), x = i % W, y = (i - (i % W)) / W;
-    if (x > 0 && !grid[i - 1]) { grid[i - 1] = 2; q.push(i - 1); }
-    if (x < W - 1 && !grid[i + 1]) { grid[i + 1] = 2; q.push(i + 1); }
-    if (y > 0 && !grid[i - W]) { grid[i - W] = 2; q.push(i - W); }
-    if (y < H - 1 && !grid[i + W]) { grid[i + W] = 2; q.push(i + W); }
-  }
-  const interior = new Set();
-  for (let i = 0; i < grid.length; i++) {
-    if (grid[i] === 0) {
-      const x = (i % W) + minX, y = (i - (i % W)) / W + minY;
-      interior.add(x + ":" + y);
-    }
-  }
-  return interior;
-}
-
-// Surface réelle d'une cellule de grille (km²), selon la latitude (Mercator)
-function cellAreaKm2(x, y, n) {
-  const latOf = (yy) => (Math.atan(Math.sinh(Math.PI * (1 - (2 * yy) / n))) * 180) / Math.PI;
-  const lat1 = latOf(y), lat2 = latOf(y + 1);
-  return Math.abs(lat1 - lat2) * 111.32 *
-    ((360 / n) * 111.32 * Math.cos((((lat1 + lat2) / 2) * Math.PI) / 180));
-}
-
-// Voile percé du contour arrondi d'un ensemble de cellules (mode Conquête)
-function fogFromCells(cells, n) {
-  const { outers, pockets } = cellRings(cells, n, [0.4, 0.25, 0.25]);
-  return {
-    type: "MultiPolygon",
-    coordinates: [[WORLD_RING, ...outers], ...pockets.map((r) => [r])],
-  };
 }
 
 // Contours arrondis d'un ensemble de cellules de grille : union -> boucles
@@ -1005,6 +957,16 @@ function decodePoly(str) {
   return coords;
 }
 
+const polyCoordsCache = new Map(); // polyline -> [[lat,lng],…] (borné par l'historique chargé)
+function decodePolyCached(str) {
+  let c = polyCoordsCache.get(str);
+  if (!c) {
+    c = decodePoly(str);
+    polyCoordsCache.set(str, c);
+  }
+  return c;
+}
+
 function toGridFine(lat, lng, n) {
   const latR = (lat * Math.PI) / 180;
   return [
@@ -1052,58 +1014,10 @@ function rebuildTraceCells() {
   traceKey = key;
   const cells = new Set();
   const add = (x, y) => cells.add(x + ":" + y);
-  for (const a of visibleActivities()) rasterizeTrace(decodePoly(a.polyline), TRACE_N, add);
+  // décodage mémoïsé par chaîne polyline : survit au remplacement du
+  // tableau d'activités pendant la sync (poll toutes les 8 s)
+  for (const a of visibleActivities()) rasterizeTrace(decodePolyCached(a.polyline), TRACE_N, add);
   traceCells = cells;
-}
-
-// Mode Conquête : on rasterise TOUTES les traces sur une même grille puis on
-// remplit toute zone encerclée par l'ensemble de tes passages — que le tour
-// ait été bouclé en une sortie ou réparti sur plusieurs. Grille 2^16
-// (~350 m) : assez fine pour remplir une boucle de quelques km, assez
-// grossière pour couvrir une région sans exploser la mémoire.
-const CONQUEST_N = 32768; // 2^15, ~1 km à nos latitudes
-// Rayon de fermeture morphologique (en cellules) : de vraies traces GPS
-// laissent de larges brèches aux jonctions ; on les bouche (jusqu'à ~2×R
-// cellules ≈ 12 km) avant le flood fill, sinon l'extérieur fuit et rien ne
-// se remplit. Plafonné à 6 : au-delà, l'érosion détruit les anneaux fins ou
-// comble les petites boucles.
-const CONQUEST_CLOSE = 6;
-
-// Dilatation / érosion (élément carré) ; la fermeture = dilater puis éroder
-// bouche les trous ≤ 2R sans agrandir la forme globale.
-function dilate(cells, r) {
-  const out = new Set();
-  for (const k of cells) {
-    const [x, y] = k.split(":").map(Number);
-    for (let dx = -r; dx <= r; dx++)
-      for (let dy = -r; dy <= r; dy++) out.add((x + dx) + ":" + (y + dy));
-  }
-  return out;
-}
-function erode(cells, r) {
-  const out = new Set();
-  for (const k of cells) {
-    const [x, y] = k.split(":").map(Number);
-    let keep = true;
-    for (let dx = -r; dx <= r && keep; dx++)
-      for (let dy = -r; dy <= r; dy++)
-        if (!cells.has((x + dx) + ":" + (y + dy))) { keep = false; break; }
-    if (keep) out.add(k);
-  }
-  return out;
-}
-
-function conquestCells() {
-  const trace = new Set();
-  const add = (x, y) => trace.add(x + ":" + y);
-  for (const a of visibleActivities()) rasterizeTrace(decodePoly(a.polyline), CONQUEST_N, add);
-  // fermeture morphologique : bouche les brèches du contour avant le remplissage
-  const closed = erode(dilate(trace, CONQUEST_CLOSE), CONQUEST_CLOSE);
-  const interior = new Set();
-  for (const k of interiorCells(closed)) interior.add(k);
-  const filled = new Set(trace);
-  for (const k of interior) filled.add(k);
-  return { filled, interior };
 }
 
 function fogFromTrace() {
@@ -1494,12 +1408,13 @@ $("join-clan").onclick = async () => {
 };
 
 let pollTimer = null;
-async function poll() {
+async function poll(preMe) {
   // On distingue déconnexion (401 -> on arrête) et erreur passagère
   // (5xx, réseau coupé -> on reprogramme) pour ne pas figer la barre de
   // progression sur un simple blip pendant la sync.
-  let me = null, transient = false;
-  try {
+  // boot() passe le /api/me qu'il vient d'obtenir : pas de re-fetch.
+  let me = preMe || null, transient = false;
+  if (!me) try {
     const res = await fetch("/api/me");
     if (res.status === 401) return; // déconnecté : arrêt définitif
     if (res.ok) me = await res.json();
@@ -1537,9 +1452,19 @@ async function poll() {
     if (acts === 0 && innerWidth <= 640) $("panel").classList.add("expanded");
   }
   if (syncing) {
-    // la carte se révèle en direct : on recharge les traces pendant la sync
+    // la carte se révèle en direct : on recharge les traces pendant la sync,
+    // mais on ne re-rend que si de nouvelles activités sont arrivées
     api("/api/activities").then((rows) => {
-      if (rows) { activitiesData = rows; applyFilter(); }
+      // longueur OU tête de liste différente : couvre le remplacement à
+      // longueur constante (delete + create entre deux ticks, cap LIMIT 2000)
+      const changed = rows && (
+        rows.length !== (activitiesData?.length || 0) ||
+        rows[0]?.start_date !== activitiesData?.[0]?.start_date
+      );
+      if (changed) {
+        activitiesData = rows;
+        applyFilter();
+      }
     }).catch(() => {});
     pollTimer = setTimeout(poll, 8000);
   }
@@ -1607,12 +1532,11 @@ async function boot() {
   $("period-year").textContent = String(new Date().getFullYear());
   $("share").style.display = "block";
   $("countries-btn").style.display = "block";
-  refreshRanking();
   $("name").textContent = `${me.firstname} ${me.lastname ?? ""}`;
   $("subtitle").textContent = "Ta carte de conquête";
   if (me.profile && me.profile.startsWith("http")) $("avatar").src = me.profile;
   refreshClan();
-  poll();
+  poll(me); // couvre aussi le premier refreshRanking (dans son Promise.all)
   // traces GPS pour le brouillard fin (rechargées pendant la sync par poll)
   api("/api/activities").then((rows) => {
     activitiesData = rows || [];
@@ -1664,6 +1588,13 @@ let countrySort = "pct";
 function renderCountries() {
   const rows = [...countryRows].sort((a, b) => b[countrySort] - a[countrySort]);
   const max = rows[0]?.[countrySort] || 1;
+  // En « % du pays », la barre est ABSOLUE (1,1 % = mince liseré) : la
+  // normaliser sur le premier faisait croire à un pays conquis à 100 %.
+  // Pour km/cases, valeurs relatives entre elles : normalisation OK.
+  const barPct = (c) =>
+    countrySort === "pct"
+      ? Math.min(100, c.pct)
+      : (100 * c[countrySort]) / max;
   $("countries-rows").innerHTML = rows.length
     ? rows.map((c, i) => `
       <div class="country-row" data-i="${i}" title="Voir mes cases : ${c.name}">
@@ -1673,7 +1604,7 @@ function renderCountries() {
           <span class="val">${Math.round(c.km).toLocaleString("fr-FR")} km · ${c.tiles.toLocaleString("fr-FR")} cases · ${fmtPct(c.pct)}</span>
           <span class="go">Y aller ›</span>
         </div>
-        <div class="country-bar"><div style="width:${Math.max(1, (100 * c[countrySort]) / max)}%"></div></div>
+        <div class="country-bar"><div style="width:${Math.max(0.5, barPct(c))}%"></div></div>
       </div>`).join("")
     : '<div class="lb-sep">Aucune case pour l\'instant</div>';
   for (const el of document.querySelectorAll(".country-row")) {
@@ -1707,7 +1638,14 @@ $("countries-modal").onclick = (e) => {
 async function shareCard() {
   if (!lastStats) return;
   const s = lastStats;
-  const src = map.getCanvas();
+  // sans preserveDrawingBuffer, le canvas WebGL n'est lisible que pendant
+  // une frame de rendu : on capture dans le callback puis on compose
+  const src = await new Promise((resolve) => {
+    map.once("render", () => resolve(map.getCanvas()));
+    map.triggerRepaint();
+    // onglet en arrière-plan ou contexte perdu : repli après 1 s
+    setTimeout(() => resolve(map.getCanvas()), 1000);
+  });
   const W = 1080, H = 1350;
   const c = document.createElement("canvas");
   c.width = W; c.height = H;

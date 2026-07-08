@@ -13,6 +13,7 @@
   "dependencies": {
     "@turf/area": "^7.3.5",
     "@turf/boolean-point-in-polygon": "^7.3.5",
+    "compression": "^1.8.1",
     "cookie-parser": "^1.4.6",
     "express": "^4.19.2",
     "pg": "^8.12.0",

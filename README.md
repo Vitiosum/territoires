@@ -29,6 +29,7 @@ clever service link-addon territoires-db
 ```bash
 clever env set STRAVA_CLIENT_ID "ton_client_id"
 clever env set STRAVA_CLIENT_SECRET "ton_client_secret"
+clever env set STRAVA_SUBSCRIPTION_ID "<id renvoyé par GET /push_subscriptions>"
 clever env set STRAVA_VERIFY_TOKEN "une_chaine_aleatoire"
 clever env set APP_SECRET "une_autre_chaine_aleatoire"
 clever env set BASE_URL "https://app-xxx.cleverapps.io"

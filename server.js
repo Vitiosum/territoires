@@ -1,7 +1,8 @@
 import express from "express";
+import compression from "compression";
 import cookieParser from "cookie-parser";
 import crypto from "node:crypto";
-import { pool, migrate } from "./lib/db.js";
+import { pool, migrate, once } from "./lib/db.js";
 import { authorizeUrl, exchangeCode, getValidToken } from "./lib/strava.js";
 import {
   enqueueFullSync,
@@ -10,10 +11,10 @@ import {
   captureTerritory,
   deleteAthleteData,
   removeActivity,
+  repairCapturedAt,
 } from "./lib/sync.js";
-import { tileToPolygon, tilesForTrack, decodePolyline, tileAreaKm2, tileCenter, ZOOM } from "./lib/tiles.js";
+import { tileToPolygon, tilesForTrack, decodePolyline, tileAreaKm2, tileRowAreaKm2, tileCenter, ZOOM } from "./lib/tiles.js";
 import { countryOf } from "./lib/countries.js";
-import { fillEnclaves } from "./lib/enclaves.js";
 
 // L'auth repose entièrement sur le cookie signé : sans secret propre, on
 // refuse de démarrer (comme db.js pour l'URI) plutôt que d'utiliser un
@@ -24,6 +25,17 @@ if (!process.env.APP_SECRET) {
 }
 
 const app = express();
+app.disable("x-powered-by");
+// en-têtes de sécurité de base (pas de CSP : unpkg/Fonts/OSM à inventorier)
+app.use((req, res, next) => {
+  res.set("X-Content-Type-Options", "nosniff");
+  res.set("X-Frame-Options", "DENY");
+  res.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  next();
+});
+// gzip : /api/tiles et /api/activities renvoient des Mo de GeoJSON et de
+// polylines, texte répétitif qui compresse très bien
+app.use(compression());
 app.use(express.json());
 app.use(cookieParser(process.env.APP_SECRET));
 app.use(express.static("public"));
@@ -45,6 +57,8 @@ for (const method of ["get", "post"]) {
 // Clever Cloud : PORT=8080 attendu par défaut
 const PORT = process.env.PORT || 8080;
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+
+const countriesCache = new Map(); // athleteId -> { key, data } (voir /api/countries)
 
 // --- Session minimaliste : cookie signé contenant l'id athlète ---
 function currentAthleteId(req) {
@@ -80,6 +94,7 @@ app.get("/auth/callback", async (req, res) => {
       signed: true,
       httpOnly: true,
       sameSite: "lax",
+      secure: BASE_URL.startsWith("https"), // jamais en clair hors dev local
       maxAge: 365 * 24 * 3600 * 1000,
     });
     // Sync automatique dès la connexion : "un bouton et tout arrive"
@@ -104,6 +119,7 @@ app.post("/api/me/delete", requireAuth, async (req, res) => {
     await fetch("https://www.strava.com/oauth/deauthorize", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(15_000),
     });
   } catch (e) {
     // token déjà invalide/révoqué : on supprime quand même nos données
@@ -132,6 +148,7 @@ app.get("/api/me", requireAuth, async (req, res) => {
       const token = await getValidToken(req.athleteId);
       const r = await fetch("https://www.strava.com/api/v3/athlete", {
         headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(15_000),
       });
       if (r.ok) {
         const a = await r.json();
@@ -149,6 +166,7 @@ app.get("/api/me", requireAuth, async (req, res) => {
 
 app.post("/api/sync", requireAuth, (req, res) => {
   enqueueFullSync(req.athleteId);
+  countriesCache.delete(req.athleteId);
   res.json({ ok: true });
 });
 
@@ -159,25 +177,23 @@ app.get("/api/stats", requireAuth, async (req, res) => {
     ? req.query.since
     : null;
   if (since) {
+    // une seule requête : le count et la somme se déduisent des lignes
     const { rows: acts } = await pool.query(
-      `SELECT count(*)::int AS activities, coalesce(sum(distance_m),0) AS distance_m
-       FROM activities WHERE athlete_id=$1 AND start_date >= $2`,
+      `SELECT distance_m, polyline FROM activities
+       WHERE athlete_id=$1 AND start_date >= $2`,
       [req.athleteId, since]
     );
-    const { rows: polys } = await pool.query(
-      `SELECT polyline FROM activities
-       WHERE athlete_id=$1 AND polyline IS NOT NULL AND start_date >= $2`,
-      [req.athleteId, since]
-    );
+    const distance_m = acts.reduce((t, a) => t + (a.distance_m || 0), 0);
     const keys = new Set();
-    for (const a of polys)
-      for (const k of tilesForTrack(decodePolyline(a.polyline))) keys.add(k);
+    for (const a of acts)
+      if (a.polyline)
+        for (const k of tilesForTrack(decodePolyline(a.polyline))) keys.add(k);
     let area_km2 = 0;
     for (const k of keys) {
       const [x, y] = k.split(":").map(Number);
       area_km2 += tileAreaKm2(x, y, ZOOM);
     }
-    return res.json({ ...acts[0], tiles: keys.size, area_km2, period: since });
+    return res.json({ activities: acts.length, distance_m, tiles: keys.size, area_km2, period: since });
   }
   const { rows } = await pool.query(
     `SELECT
@@ -186,11 +202,14 @@ app.get("/api/stats", requireAuth, async (req, res) => {
        (SELECT coalesce(sum(distance_m),0) FROM activities WHERE athlete_id=$1) AS distance_m`,
     [req.athleteId]
   );
-  const { rows: coords } = await pool.query(
-    "SELECT x, y, z FROM tiles WHERE athlete_id=$1",
+  // La surface d'une case ne dépend que de sa latitude (donc de y) : on
+  // agrège par (z, y) côté SQL — quelques centaines de lignes au lieu de
+  // dizaines de milliers.
+  const { rows: byY } = await pool.query(
+    "SELECT z, y, count(*)::int AS n FROM tiles WHERE athlete_id=$1 GROUP BY z, y",
     [req.athleteId]
   );
-  const area_km2 = coords.reduce((a, t) => a + tileAreaKm2(t.x, t.y, t.z), 0);
+  const area_km2 = byY.reduce((a, r) => a + r.n * tileRowAreaKm2(r.y, r.z), 0);
 
   // Streak : semaines consécutives (en remontant depuis cette semaine)
   // avec au moins une nouvelle case conquise. On compare des dates ISO
@@ -219,8 +238,21 @@ app.get("/api/stats", requireAuth, async (req, res) => {
   res.json({ ...rows[0], area_km2, streak });
 });
 
-// Répartition par pays : cases, km², % du pays conquis, km parcourus
+// Répartition par pays : cases, km², % du pays conquis, km parcourus.
+// Le calcul décode toutes les polylines et fait du point-dans-polygone à
+// chaque appel : on met le résultat en cache, invalidé quand (nb cases,
+// nb activités AVEC trace) bouge — compter les polylines non nulles couvre
+// le backfill d'une activité webhook qui ne crée aucune nouvelle case —
+// et invalidé explicitement par le webhook et les resyncs.
 app.get("/api/countries", requireAuth, async (req, res) => {
+  const { rows: v } = await pool.query(
+    `SELECT (SELECT count(*) FROM tiles WHERE athlete_id=$1) || ':' ||
+            (SELECT count(*) FROM activities WHERE athlete_id=$1 AND polyline IS NOT NULL) AS key`,
+    [req.athleteId]
+  );
+  const hit = countriesCache.get(req.athleteId);
+  if (hit && hit.key === v[0].key) return res.json(hit.data);
+
   const { rows: tiles } = await pool.query(
     "SELECT x, y, z FROM tiles WHERE athlete_id=$1",
     [req.athleteId]
@@ -281,17 +313,18 @@ app.get("/api/countries", requireAuth, async (req, res) => {
   const out = [...byCountry.values()]
     .map((c) => ({ ...c, pct: (100 * c.area_km2) / c.country_km2 }))
     .sort((a, b) => b.pct - a.pct);
+  if (countriesCache.size > 500) countriesCache.delete(countriesCache.keys().next().value); // borne mémoire (FIFO)
+  countriesCache.set(req.athleteId, { key: v[0].key, data: out });
   res.json(out);
 });
 
 // Top public pour l'écran d'accueil (prénom + initiale, sans auth)
 app.get("/api/leaderboard/public", async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT a.firstname, a.lastname, a.sex,
+    `SELECT a.firstname, a.lastname, a.sex, count(*) OVER ()::int AS players,
        (SELECT count(*)::int FROM tiles t WHERE t.athlete_id=a.id) AS tiles
      FROM athletes a ORDER BY tiles DESC, a.id LIMIT 5`
   );
-  const { rows: n } = await pool.query("SELECT count(*)::int AS n FROM athletes");
   res.json({
     top: rows
       .filter((r) => r.tiles > 0)
@@ -300,7 +333,7 @@ app.get("/api/leaderboard/public", async (req, res) => {
         tiles: r.tiles,
         sex: r.sex,
       })),
-    players: n[0].n,
+    players: rows.length ? rows[0].players : 0,
   });
 });
 
@@ -363,8 +396,9 @@ app.post("/api/territory/refresh", requireAuth, async (req, res) => {
 // Classement territoire : surface détenue par athlète (cases + km²)
 app.get("/api/leaderboard/territory", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT t.owner_id, a.firstname, a.lastname, a.sex, t.x, t.y, t.z
-     FROM territory t JOIN athletes a ON a.id = t.owner_id`
+    `SELECT t.owner_id, a.firstname, a.lastname, a.sex, t.z, t.y, count(*)::int AS n
+     FROM territory t JOIN athletes a ON a.id = t.owner_id
+     GROUP BY t.owner_id, a.firstname, a.lastname, a.sex, t.z, t.y`
   );
   const by = new Map();
   for (const t of rows) {
@@ -372,8 +406,8 @@ app.get("/api/leaderboard/territory", requireAuth, async (req, res) => {
     if (!by.has(id))
       by.set(id, { id, name: `${t.firstname || ""} ${t.lastname || ""}`.trim(), sex: t.sex, tiles: 0, area_km2: 0 });
     const o = by.get(id);
-    o.tiles++;
-    o.area_km2 += tileAreaKm2(t.x, t.y, t.z);
+    o.tiles += t.n;
+    o.area_km2 += t.n * tileRowAreaKm2(t.y, t.z);
   }
   const out = [...by.values()].sort((a, b) => b.tiles - a.tiles);
   const rank = out.findIndex((o) => o.id === req.athleteId) + 1;
@@ -521,7 +555,7 @@ app.get("/api/clans/me", requireAuth, async (req, res) => {
 // Traces des activités (polylines encodées, décodées côté client)
 app.get("/api/activities", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT id, name, sport_type, start_date, distance_m, polyline
+    `SELECT sport_type, start_date, polyline
      FROM activities WHERE athlete_id=$1 AND polyline IS NOT NULL
      ORDER BY start_date DESC LIMIT 2000`,
     [req.athleteId]
@@ -545,20 +579,32 @@ app.get("/webhook/strava", (req, res) => {
 // suppression et passage en privé d'une activité sont répercutés, et la
 // révocation de l'accès (settings/apps sur Strava) efface toutes les
 // données de l'athlète.
+const WEBHOOK_SUB_ID = Number(process.env.STRAVA_SUBSCRIPTION_ID || 0);
 app.post("/webhook/strava", async (req, res) => {
   res.sendStatus(200); // répondre vite, traiter ensuite
   const ev = req.body;
+  // Sans contrôle, n'importe qui pourrait forger un événement authorized:false
+  // et effacer les données d'un athlète : on vérifie l'id d'abonnement Strava.
+  if (WEBHOOK_SUB_ID && Number(ev?.subscription_id) !== WEBHOOK_SUB_ID) return;
+  // Sans id d'abonnement configuré, les événements DESTRUCTIFS sont refusés
+  // (fail-closed) : un POST forgé ne doit jamais pouvoir effacer des données.
+  const trusted = WEBHOOK_SUB_ID > 0;
+  if (!trusted) console.warn("[webhook] STRAVA_SUBSCRIPTION_ID absent : seuls les 'create' sont acceptés");
   try {
     if (ev?.object_type === "activity") {
       if (ev.aspect_type === "create") {
         await enqueueSingleActivity(Number(ev.owner_id), Number(ev.object_id));
+        countriesCache.delete(Number(ev.owner_id));
       } else if (
-        ev.aspect_type === "delete" ||
-        (ev.aspect_type === "update" && ev.updates?.private === "true")
+        trusted &&
+        (ev.aspect_type === "delete" ||
+          (ev.aspect_type === "update" && ev.updates?.private === "true"))
       ) {
         await removeActivity(Number(ev.owner_id), Number(ev.object_id));
+        countriesCache.delete(Number(ev.owner_id));
       }
     } else if (
+      trusted &&
       ev?.object_type === "athlete" &&
       ev.aspect_type === "update" &&
       ev.updates?.authorized === "false"
@@ -584,16 +630,8 @@ process.on("uncaughtException", (e) => console.error("uncaughtException:", e));
 
 // --- Démarrage ---
 await migrate();
-// Les cases encerclées ne comptent plus dans la carte perso : on purge les
-// lignes enclave (les cases encerclées y avaient été versées avec le même
-// flag) puis on ressème aussitôt les petites enclaves légitimes (lacs…,
-// fillEnclaves plafonné à 20 cases). Idempotent, quelques ms par athlète.
-{
-  const { rows: allAthletes } = await pool.query("SELECT id FROM athletes");
-  await pool.query("DELETE FROM tiles WHERE enclave");
-  for (const a of allAthletes) {
-    await fillEnclaves(Number(a.id)).catch((e) => console.error("enclaves:", e.message));
-  }
-}
+// réparation ponctuelle des dates de prise du territoire (exécutée une
+// seule fois par base, marqueur dans app_migrations)
+await once("2026-07-repair-territory-captured-at", repairCapturedAt).catch(console.error);
 await resumeInterrupted();
 app.listen(PORT, () => console.log(`Territoires sur :${PORT}`));
