@@ -1303,6 +1303,7 @@ async function refreshClan() {
     podium("🚴 Le plus de kilomètres", kmFmt, (m) => m.week_m) +
     podium("🗺️ Nouvelles cases conquises", nFmt("cases"), (m) => m.new_tiles) +
     podium("🏰 Territoire pris", nFmt("cases"), (m) => m.territory) +
+    podium("⚔️ Pillard de la semaine", nFmt("cases volées"), (m) => m.stolen) +
     podium("💪 La plus longue sortie", kmFmt, (m) => m.longest_m);
 }
 
@@ -1361,7 +1362,10 @@ async function refreshTerritory() {
   if (lb?.me) {
     el.innerHTML =
       `🏰 Ton territoire : <b>${lb.me.tiles.toLocaleString("fr-FR")} cases</b> · ` +
-      `${Math.round(lb.me.area_km2).toLocaleString("fr-FR")} km² · #${lb.me.rank}`;
+      `${Math.round(lb.me.area_km2).toLocaleString("fr-FR")} km² · #${lb.me.rank}` +
+      (lb.me.lost_week > 0
+        ? `<br>🚨 <b>${lb.me.lost_week.toLocaleString("fr-FR")} case${lb.me.lost_week > 1 ? "s" : ""} perdue${lb.me.lost_week > 1 ? "s" : ""} cette semaine</b> — va les reprendre !`
+        : "");
   } else {
     el.textContent = "Roule ou encercle une zone pour la conquérir.";
   }

@@ -419,7 +419,17 @@ app.get("/api/leaderboard/territory", requireAuth, async (req, res) => {
   }
   const out = [...by.values()].sort((a, b) => b.tiles - a.tiles);
   const rank = out.findIndex((o) => o.id === req.athleteId) + 1;
-  res.json({ top: out.slice(0, 10), me: rank ? { ...out[rank - 1], rank } : null, total: out.length });
+  // cases qui M'ont été volées cette semaine : le rappel qui fait ressortir le vélo
+  const { rows: lost } = await pool.query(
+    `SELECT count(*)::int AS n FROM territory
+     WHERE stolen_from = $1 AND owner_id <> $1 AND captured_at >= date_trunc('week', now())`,
+    [req.athleteId]
+  );
+  res.json({
+    top: out.slice(0, 10),
+    me: rank ? { ...out[rank - 1], rank, lost_week: lost[0].n } : null,
+    total: out.length,
+  });
 });
 
 // Sports réellement présents dans l'historique (pour les chips de filtre)
@@ -549,7 +559,10 @@ app.get("/api/clans/me", requireAuth, async (req, res) => {
        (SELECT count(*)::int FROM tiles t JOIN activities fa ON fa.id = t.first_activity_id
          WHERE t.athlete_id = a.id AND fa.start_date >= date_trunc('week', now())) AS new_tiles,
        (SELECT count(*)::int FROM territory te
-         WHERE te.owner_id = a.id AND te.captured_at >= date_trunc('week', now())) AS territory
+         WHERE te.owner_id = a.id AND te.captured_at >= date_trunc('week', now())) AS territory,
+       (SELECT count(*)::int FROM territory te
+         WHERE te.owner_id = a.id AND te.stolen_from IS NOT NULL AND te.stolen_from <> a.id
+           AND te.captured_at >= date_trunc('week', now())) AS stolen
      FROM clan_members m
      JOIN athletes a ON a.id = m.athlete_id
      LEFT JOIN activities act ON act.athlete_id = a.id AND act.start_date >= date_trunc('week', now())
