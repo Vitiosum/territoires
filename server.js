@@ -15,6 +15,7 @@ import {
 } from "./lib/sync.js";
 import { tileToPolygon, tilesForTrack, decodePolyline, tileAreaKm2, tileRowAreaKm2, tileCenter, ZOOM } from "./lib/tiles.js";
 import { countryOf } from "./lib/countries.js";
+import { geocodePendingTiles } from "./lib/places.js";
 
 // L'auth repose entièrement sur le cookie signé : sans secret propre, on
 // refuse de démarrer (comme db.js pour l'URI) plutôt que d'utiliser un
@@ -347,12 +348,27 @@ app.get("/api/leaderboard/public", async (req, res) => {
 
 // Classement global joueurs : top 10 + ta position, en % du leader
 app.get("/api/leaderboard", requireAuth, async (req, res) => {
+  // ?since=YYYY-MM-DD : mode SAISON — seules comptent les cases dont la
+  // première conquête date de la période (les gros historiques repartent
+  // de zéro chaque année, comme tout le monde)
+  const since = /^\d{4}-\d{2}-\d{2}$/.test(req.query.since || "")
+    ? req.query.since
+    : null;
   const { rows } = await pool.query(
-    `SELECT a.id, a.firstname, a.lastname, a.sex,
-       (SELECT count(*)::int FROM tiles t WHERE t.athlete_id=a.id) AS tiles
-     FROM athletes a
-     ORDER BY tiles DESC, a.id
-     LIMIT 100`
+    since
+      ? `SELECT a.id, a.firstname, a.lastname, a.sex,
+           (SELECT count(*)::int FROM tiles t
+              JOIN activities act ON act.id = t.first_activity_id
+            WHERE t.athlete_id = a.id AND act.start_date >= $1) AS tiles
+         FROM athletes a
+         ORDER BY tiles DESC, a.id
+         LIMIT 100`
+      : `SELECT a.id, a.firstname, a.lastname, a.sex,
+           (SELECT count(*)::int FROM tiles t WHERE t.athlete_id=a.id) AS tiles
+         FROM athletes a
+         ORDER BY tiles DESC, a.id
+         LIMIT 100`,
+    since ? [since] : []
   );
   const top = rows.slice(0, 10);
   const rank = rows.findIndex((r) => Number(r.id) === req.athleteId) + 1;
@@ -429,6 +445,55 @@ app.get("/api/leaderboard/territory", requireAuth, async (req, res) => {
     top: out.slice(0, 10),
     me: rank ? { ...out[rank - 1], rank, lost_week: lost[0].n } : null,
     total: out.length,
+  });
+});
+
+// Mes villes (cases perso par commune) + le « Roi » de chaque ville :
+// le plus gros détenteur sur la carte partagée (turf war).
+app.get("/api/cities", requireAuth, async (req, res) => {
+  const { rows: mine } = await pool.query(
+    `SELECT p.city, count(*)::int AS tiles
+     FROM tiles t JOIN tile_places p ON p.z = t.z AND p.x = t.x AND p.y = t.y
+     WHERE t.athlete_id = $1 AND p.city <> ''
+     GROUP BY p.city
+     ORDER BY tiles DESC
+     LIMIT 100`,
+    [req.athleteId]
+  );
+  const { rows: kings } = await pool.query(
+    `SELECT DISTINCT ON (city) city, owner_id, firstname, lastname, n FROM (
+       SELECT p.city, te.owner_id, a.firstname, a.lastname, count(*)::int AS n
+       FROM territory te
+       JOIN tile_places p ON p.z = te.z AND p.x = te.x AND p.y = te.y
+       JOIN athletes a ON a.id = te.owner_id
+       WHERE p.city <> ''
+       GROUP BY p.city, te.owner_id, a.firstname, a.lastname
+     ) sub
+     ORDER BY city, n DESC, owner_id`
+  );
+  const kingBy = new Map(kings.map((k) => [k.city, k]));
+  // avancement du géocodage : le client affiche « en cours » si incomplet
+  const { rows: prog } = await pool.query(
+    `SELECT (SELECT count(*) FROM territory)::int AS total,
+            (SELECT count(*) FROM territory te
+             WHERE EXISTS (SELECT 1 FROM tile_places p WHERE p.z=te.z AND p.x=te.x AND p.y=te.y))::int AS geocoded`
+  );
+  res.json({
+    geocoding: prog[0].geocoded < prog[0].total,
+    cities: mine.map((c) => {
+      const k = kingBy.get(c.city);
+      return {
+        city: c.city,
+        tiles: c.tiles,
+        king: k
+          ? {
+              id: Number(k.owner_id),
+              name: `${k.firstname || ""} ${(k.lastname || "").slice(0, 1)}${k.lastname ? "." : ""}`.trim(),
+              tiles: k.n,
+            }
+          : null,
+      };
+    }),
   });
 });
 
@@ -655,4 +720,5 @@ await migrate();
 // seule fois par base, marqueur dans app_migrations)
 await once("2026-07-repair-territory-captured-at", repairCapturedAt).catch(console.error);
 await resumeInterrupted();
+geocodePendingTiles(); // rattrapage communes en arrière-plan
 app.listen(PORT, () => console.log(`Territoires sur :${PORT}`));

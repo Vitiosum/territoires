@@ -78,6 +78,12 @@
   .country-line { display: flex; gap: 8px; align-items: baseline; }
   .country-line .who { flex: 1; }
   .country-line .val { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .rank-title {
+    font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+    padding: 2px 8px; border-radius: 99px; flex: none;
+    background: rgba(216, 181, 106, 0.14); color: var(--brass);
+  }
+  .rank-title.roi { background: linear-gradient(160deg, #e0bf7c, #bd964e); color: #241a05; }
   .country-bar { height: 5px; background: rgba(243, 236, 217, 0.09); border-radius: 3px; margin-top: 6px; overflow: hidden; }
   .country-bar div { height: 100%; background: linear-gradient(90deg, var(--brand-deep), var(--brand)); border-radius: 3px; }
   #main-zone {
@@ -441,8 +447,12 @@
 <div id="countries-modal">
   <div id="countries-card">
     <button class="close" id="countries-close">✕</button>
-    <h2>🌍 Mes pays</h2>
+    <h2>🌍 Mes zones</h2>
     <div class="tabs" style="margin-top:10px">
+      <button id="zones-countries" class="on">Pays</button>
+      <button id="zones-cities">Villes</button>
+    </div>
+    <div class="tabs" id="csort-tabs" style="margin-top:8px">
       <button id="csort-pct" class="on">% du pays</button>
       <button id="csort-km">Kilomètres</button>
       <button id="csort-tiles">Cases</button>
@@ -452,6 +462,7 @@
       <button id="main-zone-go">Y aller</button>
     </div>
     <div id="countries-rows"></div>
+    <div id="cities-rows" style="display:none"></div>
   </div>
 </div>
 
@@ -1220,7 +1231,9 @@ async function refreshRanking() {
         ).join("")
       : '<div class="lb-sep">Aucun clan pour l\'instant</div>';
   } else {
-    const lb = await api("/api/leaderboard");
+    // période « cette année » = mode SAISON : seules comptent les premières
+    // conquêtes de l'année, tout le monde repart de zéro le 1er janvier
+    const lb = await api("/api/leaderboard" + (periodSince ? `?since=${periodSince}` : ""));
     if (!lb) return;
     const leader = lb.top[0]?.tiles || 0;
     let html = lb.top.map((p, i) =>
@@ -1233,6 +1246,8 @@ async function refreshRanking() {
     }
     $("lb-rows").innerHTML = html;
   }
+  document.querySelector("#ranking h2").textContent =
+    periodSince && lbMode === "players" ? `🏆 Saison ${new Date().getFullYear()}` : "Classement";
   $("ranking").style.display = "block";
 }
 
@@ -1377,6 +1392,7 @@ $("period-all").onclick = () => {
   $("period-year").classList.remove("on");
   refreshMap();
   refreshStats();
+  refreshRanking();
 };
 $("period-year").onclick = () => {
   periodSince = `${new Date().getFullYear()}-01-01`;
@@ -1384,6 +1400,7 @@ $("period-year").onclick = () => {
   $("period-all").classList.remove("on");
   refreshMap();
   refreshStats();
+  refreshRanking();
 };
 
 $("tab-km").onclick = () => { metric = "km"; $("tab-km").classList.add("on"); $("tab-tiles").classList.remove("on"); refreshClan(); };
@@ -1555,14 +1572,67 @@ function fmtPct(p) {
   return "< 0,01 %";
 }
 
+// Titre de noblesse par ville : Roi = plus gros détenteur de la carte
+// partagée (>= 10 cases), sinon paliers sur TES cases dans la ville.
+function cityTitle(c, myId) {
+  if (c.king && c.king.id === myId && c.king.tiles >= 10) return ["roi", "👑 Roi"];
+  if (c.tiles >= 50) return ["", "Duc"];
+  if (c.tiles >= 25) return ["", "Vicomte"];
+  if (c.tiles >= 10) return ["", "Baron"];
+  return null;
+}
+
+let zonesTab = "countries";
+function setZonesTab(tab) {
+  zonesTab = tab;
+  $("zones-countries").classList.toggle("on", tab === "countries");
+  $("zones-cities").classList.toggle("on", tab === "cities");
+  $("countries-rows").style.display = tab === "countries" ? "block" : "none";
+  $("csort-tabs").style.display = tab === "countries" ? "flex" : "none";
+  $("main-zone").style.display = tab === "countries" && mainZoneReady ? "flex" : "none";
+  $("cities-rows").style.display = tab === "cities" ? "block" : "none";
+  if (tab === "cities") renderCities();
+}
+$("zones-countries").onclick = () => setZonesTab("countries");
+$("zones-cities").onclick = () => setZonesTab("cities");
+
+async function renderCities() {
+  $("cities-rows").innerHTML = '<div class="lb-sep">Calcul en cours…</div>';
+  const d = await api("/api/cities");
+  if (!d) return;
+  const meId = Number(($("strava-profile").href.match(/athletes\/(\d+)/) || [])[1]);
+  let html = d.cities.length
+    ? d.cities.map((c) => {
+        const t = cityTitle(c, meId);
+        const kingLabel = c.king
+          ? (c.king.id === meId ? "tu tiens la ville" : `👑 ${esc(c.king.name)} · ${c.king.tiles.toLocaleString("fr-FR")}`)
+          : "";
+        return `
+        <div class="country-row">
+          <div class="country-line">
+            <span class="who">${esc(c.city)}</span>
+            ${t ? `<span class="rank-title ${t[0]}">${t[1]}</span>` : ""}
+            <span class="val">${c.tiles.toLocaleString("fr-FR")} cases${kingLabel ? " · " + kingLabel : ""}</span>
+          </div>
+        </div>`;
+      }).join("")
+    : '<div class="lb-sep">Aucune ville pour l\'instant</div>';
+  if (d.geocoding)
+    html += '<div class="lb-sep">🌐 Repérage des communes en cours — la liste s\'enrichit toute seule</div>';
+  $("cities-rows").innerHTML = html;
+}
+
+let mainZoneReady = false;
 async function openCountries() {
   $("countries-modal").style.display = "block";
+  setZonesTab("countries");
   $("countries-rows").innerHTML = '<div class="lb-sep">Calcul en cours…</div>';
 
   // Zone principale : cluster le plus dense + nom via Nominatim
   if (tilesData.features.length) {
     const b = denseBounds(tilesData.features);
     const c = b.getCenter();
+    mainZoneReady = true;
     $("main-zone").style.display = "flex";
     $("main-zone-label").textContent = "Zone principale : …";
     $("main-zone-go").onclick = () => {
