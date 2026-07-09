@@ -1133,25 +1133,49 @@ async function refreshMap() {
   if (!tiles) return;
   tilesData = tiles;
   applyFilter();
-  if (firstFit && tiles.features.length) {
-    firstFit = false;
-    const b = denseBounds(tiles.features);
-    const doFit = () =>
-      map.fitBounds(b, {
-        padding: { top: 70, right: 70, bottom: 70, left: innerWidth > 700 ? 400 : 70 },
-        maxZoom: 12,
-        animate: false, // cadrage initial : instantané et fiable partout
-      });
-    // cadrage immédiat, puis recadrage au load si le fond arrive après
-    doFit();
-    if (!styleReady) map.once("load", doFit);
+  // on attend d'avoir AUSSI les activités : ce sont elles qui disent où
+  // l'athlète sort le plus (leur callback appelle fitToHome à son tour)
+  if (firstFit && tiles.features.length && activitiesData) fitToHome();
+}
+
+// Cadrage initial : la zone où l'athlète SORT le plus souvent (nombre de
+// départs d'activités par cellule ~70 km), pas celle où il a le plus de
+// cases — un grand voyage pèse beaucoup de cases mais peu de sorties.
+// Repli sur la densité de cases tant que les activités ne sont pas chargées.
+function fitToHome() {
+  if (!firstFit || !tilesData.features.length) return;
+  firstFit = false;
+  const starts = new Map(); // cellule -> nb de départs d'activités
+  const CELL = 0.7;
+  for (const a of activitiesData || []) {
+    if (!a.polyline) continue;
+    const p = decodePolyCached(a.polyline)[0];
+    if (!p) continue;
+    const k = Math.floor(p[1] / CELL) + ":" + Math.floor(p[0] / CELL);
+    starts.set(k, (starts.get(k) || 0) + 1);
   }
+  const b = starts.size
+    ? denseBounds(tilesData.features, (f) => {
+        const [lng, lat] = f.geometry.coordinates[0][0];
+        return starts.get(Math.floor(lng / CELL) + ":" + Math.floor(lat / CELL)) || 0;
+      })
+    : denseBounds(tilesData.features);
+  if (b.isEmpty()) { firstFit = true; return; }
+  const doFit = () =>
+    map.fitBounds(b, {
+      padding: { top: 70, right: 70, bottom: 70, left: innerWidth > 700 ? 400 : 70 },
+      maxZoom: 12,
+      animate: false, // cadrage initial : instantané et fiable partout
+    });
+  // cadrage immédiat, puis recadrage au load si le fond arrive après
+  doFit();
+  if (!styleReady) map.once("load", doFit);
 }
 
 // Zone la plus dense (et ses abords) : cellule ~70 km la plus fournie.
 // Utilisée pour le zoom initial et le bouton "Y aller" du menu pays —
 // un séjour lointain ne doit pas dézoomer la carte au point de ne rien voir.
-function denseBounds(features) {
+function denseBounds(features, weightOf) {
   const CELL = 0.7;
   const buckets = new Map();
   const cellOf = (f) => {
@@ -1160,7 +1184,7 @@ function denseBounds(features) {
   };
   for (const f of features) {
     const k = cellOf(f).join(":");
-    buckets.set(k, (buckets.get(k) || 0) + 1);
+    buckets.set(k, (buckets.get(k) || 0) + (weightOf ? weightOf(f) : 1));
   }
   let bx = 0, by = 0, bestN = 0;
   for (const [k, n] of buckets) {
@@ -1665,6 +1689,7 @@ async function boot() {
   api("/api/activities").then((rows) => {
     activitiesData = rows || [];
     applyFilter();
+    fitToHome(); // le cadrage attend les activités pour viser la zone la plus fréquentée
   });
 }
 
