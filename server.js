@@ -327,6 +327,25 @@ app.get("/api/countries", requireAuth, async (req, res) => {
   res.json(out);
 });
 
+// Carte publique de l'accueil : le territoire conquis, ANONYMISÉ — les
+// polygones et un index de propriétaire opaque (pour varier les couleurs),
+// aucun nom ni identifiant réel (conformité affichage Strava).
+app.get("/api/territory/public", async (req, res) => {
+  const { rows } = await pool.query("SELECT z, x, y, owner_id FROM territory");
+  const idx = new Map(); // owner_id -> index anonyme, stable dans la réponse
+  res.json({
+    type: "FeatureCollection",
+    features: rows.map((t) => {
+      if (!idx.has(t.owner_id)) idx.set(t.owner_id, idx.size);
+      return {
+        type: "Feature",
+        properties: { o: idx.get(t.owner_id) },
+        geometry: { type: "Polygon", coordinates: tileToPolygon(t.x, t.y, t.z) },
+      };
+    }),
+  });
+});
+
 // Top public pour l'écran d'accueil (prénom + initiale, sans auth)
 app.get("/api/leaderboard/public", async (req, res) => {
   const { rows } = await pool.query(

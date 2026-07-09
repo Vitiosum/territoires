@@ -1639,6 +1639,23 @@ async function boot() {
         localStorage.removeItem("pendingClan"); // code invalide : on oublie
       }
     }
+    // L'accueil montre le territoire déjà conquis (anonyme, couleurs par
+    // joueur sans aucun nom) plutôt qu'un voile sombre vide : on voit tout
+    // de suite à quoi on joue.
+    api("/api/territory/public").then((geo) => {
+      if (!geo?.features?.length) return;
+      for (const f of geo.features)
+        f.properties.color = OWNER_PALETTE[f.properties.o % OWNER_PALETTE.length];
+      const show = () => {
+        map.getSource("territory")?.setData(geo);
+        map.setLayoutProperty("territory-fill", "visibility", "visible");
+        map.setLayoutProperty("territory-line", "visibility", "visible");
+        map.setLayoutProperty("fog-fill", "visibility", "none");
+      };
+      if (styleReady) show();
+      else map.once("style.load", show);
+      map.fitBounds(denseBounds(geo.features), { padding: 70, maxZoom: 11, animate: false });
+    }).catch(() => {});
     const pub = await api("/api/leaderboard/public");
     if (pub?.top?.length) {
       const medals = ["🥇", "🥈", "🥉", "4.", "5."];
