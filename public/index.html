@@ -94,6 +94,18 @@
   .member.mate { cursor: pointer; }
   .member.mate:hover .who { color: var(--brand); }
   .member .peek { color: var(--muted); font-size: 11px; flex: none; margin-left: 6px; }
+  #clan-rename {
+    margin-left: 6px; border: 1px solid var(--line); border-radius: 99px;
+    background: rgba(243, 236, 217, 0.04); color: var(--muted); font-size: 11px;
+    padding: 3px 9px; cursor: pointer; flex: none;
+  }
+  #clan-leave { all: unset; display: block; margin-top: 10px; font-size: 12px; color: var(--muted); cursor: pointer; text-decoration: underline; }
+  .make-chief {
+    border: 1px solid var(--brass-dim); border-radius: 99px; background: none;
+    font-size: 11px; padding: 1px 8px; cursor: pointer; flex: none; margin-left: 6px;
+    opacity: .75;
+  }
+  .make-chief:hover { opacity: 1; background: rgba(216, 181, 106, 0.12); }
   #clan-invite {
     margin-left: auto; border: 1px solid rgba(47, 189, 143, 0.45); border-radius: 99px;
     background: rgba(47, 189, 143, 0.1); color: #7fe3c2; font-size: 11.5px; font-weight: 600;
@@ -455,6 +467,7 @@
     </div>
     <div id="board"></div>
     <div id="weekly"></div>
+    <div id="clan-actions"></div>
     <div id="clan-forms">
       <input id="clan-name" placeholder="Nom du clan à créer">
       <button id="create-clan">Créer mon clan</button>
@@ -1396,10 +1409,12 @@ async function refreshClan() {
     $("clan-forms").style.display = "block";
     $("board").innerHTML = "";
     $("weekly").innerHTML = "";
+    $("clan-actions").innerHTML = "";
     document.querySelector("#clan .tabs").style.display = "none";
     return;
   }
   myClanId = Number(clan.id);
+  const chiefId = Number(clan.chief);
   $("clan-forms").style.display = "none";
   document.querySelector("#clan .tabs").style.display = "flex";
   $("clan-title").innerHTML =
@@ -1435,7 +1450,9 @@ async function refreshClan() {
       (m, i) => `
       <div class="member${m.id !== myId ? " mate" : ""}" data-id="${m.id}" data-name="${esc(m.name)}">
         <span class="rank">${i + 1}</span>
-        <span class="who">${esc(m.name)}${sexGlyph(m.sex)}${m.id !== myId ? '<span class="peek">👀 voir sa carte</span>' : ""}</span>
+        <span class="who">${esc(m.name)}${m.id === chiefId ? ' <span title="Chef du clan">👑</span>' : ""}${sexGlyph(m.sex)}${m.id !== myId ? '<span class="peek">👀 voir sa carte</span>' : ""}${
+          chiefId === myId && m.id !== myId ? `<button class="make-chief" data-id="${m.id}" title="Nommer chef du clan">👑</button>` : ""
+        }</span>
         <span class="val">${
           metric === "km"
             ? m.km.toLocaleString("fr-FR") + " km"
@@ -1447,6 +1464,50 @@ async function refreshClan() {
   for (const el of document.querySelectorAll("#board .member.mate")) {
     el.onclick = () => spectate(Number(el.dataset.id), el.dataset.name);
   }
+
+  // --- Pouvoirs du clan : renommer / transmettre le titre / quitter ---
+  const isChief = chiefId === myId;
+  if (isChief) {
+    $("clan-title").insertAdjacentHTML(
+      "beforeend",
+      ` <button id="clan-rename" title="Renommer le clan">✏️</button>`
+    );
+    $("clan-rename").onclick = async () => {
+      const name = prompt("Nouveau nom du clan :", clan.name);
+      if (!name?.trim() || name.trim() === clan.name) return;
+      await api("/api/clans/rename", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      refreshClan();
+      refreshRanking();
+    };
+    for (const el of document.querySelectorAll("#board .make-chief")) {
+      el.onclick = async (ev) => {
+        ev.stopPropagation(); // ne pas déclencher le mode spectateur
+        const target = rows.find((r) => r.id === Number(el.dataset.id));
+        if (!confirm(`Faire de ${target.name} le chef du clan ? Tu perdras tes pouvoirs de chef.`)) return;
+        await api("/api/clans/transfer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ athleteId: target.id }),
+        });
+        refreshClan();
+      };
+    }
+  }
+  $("clan-actions").innerHTML = `<button id="clan-leave">quitter le clan</button>`;
+  $("clan-leave").onclick = async () => {
+    const warn = isChief && rows.length > 1
+      ? "\nTu es chef : le rôle passera au membre le plus ancien."
+      : rows.length === 1 ? "\nTu es le dernier membre : le clan sera supprimé." : "";
+    if (!confirm(`Quitter le clan « ${clan.name} » ?${warn}`)) return;
+    await api("/api/clans/leave", { method: "POST" });
+    myClanId = null;
+    refreshClan();
+    refreshRanking();
+  };
 
   // Défis de la semaine : mini-podiums remis à zéro chaque lundi, pour
   // donner une chance à tout le monde face aux gros totaux cumulés.

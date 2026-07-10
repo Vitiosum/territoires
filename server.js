@@ -660,16 +660,84 @@ app.post("/api/clans/join", requireAuth, async (req, res) => {
   res.json(rows[0]);
 });
 
+// Quitter son clan : si le chef part, le doyen hérite du rôle ;
+// si le clan se vide, il est supprimé (le code d'invitation meurt avec).
+app.post("/api/clans/leave", requireAuth, async (req, res) => {
+  const { rows: cl } = await pool.query(
+    `SELECT c.id, c.created_by FROM clans c
+     JOIN clan_members m ON m.clan_id = c.id
+     WHERE m.athlete_id=$1 ORDER BY m.joined_at DESC LIMIT 1`,
+    [req.athleteId]
+  );
+  if (!cl.length) return res.status(404).json({ error: "no_clan" });
+  const clan = cl[0];
+  await pool.query(
+    "DELETE FROM clan_members WHERE clan_id=$1 AND athlete_id=$2",
+    [clan.id, req.athleteId]
+  );
+  const { rows: rest } = await pool.query(
+    "SELECT athlete_id FROM clan_members WHERE clan_id=$1 ORDER BY joined_at LIMIT 1",
+    [clan.id]
+  );
+  if (!rest.length) {
+    await pool.query("DELETE FROM clans WHERE id=$1", [clan.id]);
+    return res.json({ ok: true, deleted: true });
+  }
+  if (!clan.created_by || Number(clan.created_by) === req.athleteId) {
+    await pool.query("UPDATE clans SET created_by=$1 WHERE id=$2", [rest[0].athlete_id, clan.id]);
+  }
+  res.json({ ok: true });
+});
+
+// Renommer le clan — réservé au chef (créateur ou héritier du rôle)
+app.post("/api/clans/rename", requireAuth, async (req, res) => {
+  const name = (req.body?.name || "").trim().slice(0, 40);
+  if (!name) return res.status(400).json({ error: "name_required" });
+  const { rowCount } = await pool.query(
+    `UPDATE clans SET name=$1
+     WHERE id = (SELECT c.id FROM clans c JOIN clan_members m ON m.clan_id = c.id
+                 WHERE m.athlete_id=$2 AND c.created_by=$2
+                 ORDER BY m.joined_at DESC LIMIT 1)`,
+    [name, req.athleteId]
+  );
+  if (!rowCount) return res.status(403).json({ error: "not_chief" });
+  res.json({ ok: true });
+});
+
+// Transmettre le rôle de chef à un membre du clan — réservé au chef
+app.post("/api/clans/transfer", requireAuth, async (req, res) => {
+  const target = Number(req.body?.athleteId);
+  if (!target) return res.status(400).json({ error: "athlete_required" });
+  const { rowCount } = await pool.query(
+    `UPDATE clans SET created_by=$1
+     WHERE id = (SELECT c.id FROM clans c JOIN clan_members m ON m.clan_id = c.id
+                 WHERE m.athlete_id=$2 AND c.created_by=$2
+                 ORDER BY m.joined_at DESC LIMIT 1)
+       AND EXISTS (SELECT 1 FROM clan_members cm WHERE cm.clan_id = clans.id AND cm.athlete_id=$1)`,
+    [target, req.athleteId]
+  );
+  if (!rowCount) return res.status(403).json({ error: "not_allowed" });
+  res.json({ ok: true });
+});
+
 // Mon clan + classement : metric = km | tiles
 app.get("/api/clans/me", requireAuth, async (req, res) => {
   const { rows: cl } = await pool.query(
-    `SELECT c.id, c.name, c.invite_code FROM clans c
+    `SELECT c.id, c.name, c.invite_code, c.created_by AS chief FROM clans c
      JOIN clan_members m ON m.clan_id = c.id
      WHERE m.athlete_id=$1 ORDER BY m.joined_at DESC LIMIT 1`,
     [req.athleteId]
   );
   if (!cl.length) return res.json(null);
   const clan = cl[0];
+  if (!clan.chief) {
+    // Chef parti (compte supprimé) : le doyen hérite automatiquement du rôle
+    const { rows: heir } = await pool.query(
+      "UPDATE clans SET created_by = (SELECT athlete_id FROM clan_members WHERE clan_id=$1 ORDER BY joined_at LIMIT 1) WHERE id=$1 RETURNING created_by",
+      [clan.id]
+    );
+    clan.chief = heir[0]?.created_by || null;
+  }
   const { rows: board } = await pool.query(
     `SELECT a.id, a.firstname, a.lastname, a.sex,
        coalesce((SELECT sum(distance_m) FROM activities WHERE athlete_id=a.id),0)::float AS km_m,
