@@ -409,12 +409,21 @@ app.get("/api/leaderboard/clans", requireAuth, async (req, res) => {
 });
 
 // Turf war : carte du territoire partagé, colorée par propriétaire.
-// Chaque case z14 a un seul propriétaire (le dernier l'ayant capturée).
+// Chaque case raconte son histoire : propriétaire, clan, date de prise,
+// à qui elle a été volée, commune — le clic sur la carte affiche tout.
 app.get("/api/territory", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT t.z, t.x, t.y, t.owner_id, a.firstname, a.lastname
-     FROM territory t JOIN athletes a ON a.id = t.owner_id`
+    `SELECT t.z, t.x, t.y, t.owner_id, t.captured_at, a.firstname, a.lastname,
+            sf.firstname AS sf_firstname, sf.lastname AS sf_lastname,
+            cm.clan_id, c.name AS clan_name, p.city
+     FROM territory t
+     JOIN athletes a ON a.id = t.owner_id
+     LEFT JOIN athletes sf ON sf.id = t.stolen_from
+     LEFT JOIN clan_members cm ON cm.athlete_id = t.owner_id
+     LEFT JOIN clans c ON c.id = cm.clan_id
+     LEFT JOIN tile_places p ON p.z = t.z AND p.x = t.x AND p.y = t.y`
   );
+  const short = (f, l) => (f || l ? `${f || ""} ${(l || "").slice(0, 1)}${l ? "." : ""}`.trim() : null);
   res.json({
     type: "FeatureCollection",
     features: rows.map((t) => ({
@@ -423,6 +432,11 @@ app.get("/api/territory", requireAuth, async (req, res) => {
         owner: Number(t.owner_id),
         name: `${t.firstname || ""} ${t.lastname || ""}`.trim(),
         mine: Number(t.owner_id) === req.athleteId,
+        capturedAt: t.captured_at,
+        stolenFrom: short(t.sf_firstname, t.sf_lastname),
+        clan: t.clan_id ? Number(t.clan_id) : null,
+        clanName: t.clan_name || null,
+        city: t.city || null,
       },
       geometry: { type: "Polygon", coordinates: tileToPolygon(t.x, t.y, t.z) },
     })),

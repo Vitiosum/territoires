@@ -281,17 +281,14 @@
   .pop-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
   #logout { all: unset; display: block; margin-top: 10px; font-size: 12px; color: var(--muted); cursor: pointer; text-decoration: underline; }
 
-  #territory-toggle {
-    width: 100%; margin-top: 10px; padding: 9px; font-size: 13px; font-weight: 600;
-    border-radius: 9px; border: 1px solid var(--brass-dim);
-    background: rgba(216, 181, 106, 0.07); color: #e8d9b0; cursor: pointer;
-    transition: background .2s, transform .15s;
-  }
-  #territory-toggle:hover { transform: translateY(-1px); }
-  #territory-toggle.on {
+  /* Les deux mondes du jeu : Conquête (turf war, par défaut) et Ma carte
+     (exploration perso). L'onglet Conquête actif est doré, bien à part. */
+  #mode-tabs { margin-top: 13px; }
+  #mode-tabs button { padding: 9px; font-size: 13px; font-weight: 600; }
+  #mode-tabs #mode-conquest.on {
     background: linear-gradient(160deg, #e0bf7c, #bd964e);
     border-color: transparent; color: #241a05;
-    box-shadow: 0 6px 18px rgba(216, 181, 106, 0.25);
+    box-shadow: 0 4px 14px rgba(216, 181, 106, 0.25);
   }
   #conquest { display: none; margin-top: 8px; font-size: 12.5px; color: var(--muted); line-height: 1.4; }
   #conquest b { color: var(--brand); }
@@ -357,7 +354,7 @@
     #period-tabs { float: left; width: calc(50% - 3px); }
     #view-tabs { float: right; width: calc(50% - 3px); }
     #view-tabs .em { display: none; } /* les libellés tiennent sans emoji */
-    #territory-toggle { padding: 8px; clear: both; }
+    #mode-tabs { clear: both; }
     .row { margin-top: 12px; }
     .stat { padding: 0 8px; }
     .stat b { font-size: 21px; }
@@ -391,6 +388,16 @@
     <p class="join" id="welcome-join">🏁 Rejoins l'aventure — ta place t'attend.</p>
   </div>
 
+  <div class="tabs" id="mode-tabs" style="display:none">
+    <button id="mode-conquest" class="on">🏰 Conquête</button>
+    <button id="mode-explore">🧭 Ma carte</button>
+  </div>
+  <div class="tabs" id="terr-color-tabs" style="display:none">
+    <button id="terr-by-player" class="on">Par joueur</button>
+    <button id="terr-by-clan">Par clan</button>
+  </div>
+  <div id="conquest"></div>
+
   <div id="chips"></div>
 
   <div class="tabs" id="period-tabs" style="display:none">
@@ -403,8 +410,7 @@
     <button id="view-colors"><span class="em">🎨 </span>Couleurs</button>
   </div>
 
-  <button id="territory-toggle" style="display:none">🏰 Mode Territoire — qui tient quoi</button>
-  <div id="conquest"></div>
+
 
   <div class="row">
     <div class="stat"><b id="s-tiles">–</b><i>cases</i></div>
@@ -614,6 +620,7 @@ const initLayers = () => {
   });
   // Clic sur une case : détail des disciplines (lisibilité du damier)
   const showTilePopup = (e) => {
+    if (territoryMode) return; // en conquête, c'est territory-fill qui répond
     const p = e.features[0].properties;
     let html;
     if (p.enclave) {
@@ -629,33 +636,77 @@ const initLayers = () => {
       .setLngLat(e.lngLat).setHTML(html).addTo(map);
   };
   map.on("click", "tiles-fill", showTilePopup);
+  // Conquête : chaque case raconte son histoire au clic
+  map.on("click", "territory-fill", (e) => {
+    const p = e.features[0].properties;
+    let when = "";
+    try {
+      when = new Date(p.capturedAt).toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
+    } catch {}
+    let html = `<b>🏰 ${esc(p.name)}${p.mine === true || p.mine === "true" ? " (toi)" : ""}</b>`;
+    if (p.clanName) html += `<br><span style="color:#9ab3a4">🛡️ ${esc(p.clanName)}</span>`;
+    html += `<br><span style="color:#9ab3a4">${p.city ? esc(p.city) + " · " : ""}prise le ${when}</span>`;
+    if (p.stolenFrom) html += `<br><span style="color:#e57bb1">⚔️ volée à ${esc(p.stolenFrom)}</span>`;
+    new maplibregl.Popup({ closeButton: false, maxWidth: "240px" })
+      .setLngLat(e.lngLat).setHTML(html).addTo(map);
+  });
+  map.on("mouseenter", "territory-fill", () => (map.getCanvas().style.cursor = "pointer"));
+  map.on("mouseleave", "territory-fill", () => (map.getCanvas().style.cursor = ""));
   map.on("mouseenter", "tiles-fill", () => (map.getCanvas().style.cursor = "pointer"));
   map.on("mouseleave", "tiles-fill", () => (map.getCanvas().style.cursor = ""));
 
   styleReady = true;
   applyViewMode();
   applyFilter();
+  // données arrivées avant les couches (boot rapide) : on les repeint
+  if (typeof lastTerritoryGeo !== "undefined" && lastTerritoryGeo)
+    map.getSource("territory")?.setData(lastTerritoryGeo);
 };
 map.on("style.load", initLayers);
 map.on("load", initLayers);
+// Filet : un onglet en arrière-plan peut suspendre les rAF et ne jamais
+// délivrer style.load — on retente jusqu'à réussir (initLayers est gardé
+// par styleReady, donc idempotent).
+const layersFallback = setInterval(() => {
+  if (styleReady) return clearInterval(layersFallback);
+  try {
+    initLayers();
+    clearInterval(layersFallback);
+  } catch {}
+}, 1500);
 
 // Mode d'affichage : brouillard (défaut) ou couleurs pleines.
 // Dans le brouillard, les remplissages passent quasi transparents (le clic
 // reste actif) et les bordures colorées gardent l'identité du sport.
 let fogMode = true;
-let territoryMode = false;
+let territoryMode = true; // la CONQUÊTE est la vue par défaut
+let connected = false;
 function applyViewMode() {
   if (!styleReady) return;
-  // Mode territoire (turf war) : on masque la carte personnelle et on montre
-  // le territoire partagé coloré par propriétaire.
   const perso = !territoryMode;
   map.setLayoutProperty("fog-fill", "visibility", perso && fogMode ? "visible" : "none");
   for (const id of ["zones-fill", "zones-hybrid", "zones-line"])
     map.setLayoutProperty(id, "visibility", perso && !fogMode ? "visible" : "none");
   for (const id of ["territory-fill", "territory-line"])
     map.setLayoutProperty(id, "visibility", territoryMode ? "visible" : "none");
-  $("view-tabs").style.opacity = territoryMode ? 0.4 : 1;
+  // le panneau suit le mode : contrôles d'exploration en « Ma carte »,
+  // coloration par clan en « Conquête »
+  if (connected) {
+    $("chips").style.display = perso ? "flex" : "none";
+    $("period-tabs").style.display = perso ? "flex" : "none";
+    $("view-tabs").style.display = perso ? "flex" : "none";
+    $("terr-color-tabs").style.display = territoryMode ? "flex" : "none";
+  }
   renderVisibleLayers(); // calcule la représentation devenue visible si périmée
+}
+
+function setMode(conquest) {
+  territoryMode = conquest;
+  $("mode-conquest").classList.toggle("on", conquest);
+  $("mode-explore").classList.toggle("on", !conquest);
+  applyViewMode();
+  if (conquest) refreshTerritory();
+  else $("conquest").style.display = "none";
 }
 
 async function api(path, opts) {
@@ -1105,14 +1156,13 @@ async function spectate(id, name) {
   if (!t) return;
   spectating = { id, name };
   tilesData = t;
-  // ses zones se lisent sans ses traces GPS : on force la vue Couleurs
-  if (territoryMode) { territoryMode = false; $("territory-toggle").classList.remove("on"); }
+  // ses zones se lisent sans ses traces GPS : vue Ma carte + Couleurs
   if (fogMode) {
     fogMode = false;
     $("view-colors").classList.add("on");
     $("view-fog").classList.remove("on");
   }
-  applyViewMode();
+  setMode(false);
   applyFilter();
   if (t.features.length) map.fitBounds(denseBounds(t.features), { padding: 70, maxZoom: 12 });
   $("spectate-name").textContent = `👀 Carte de ${name}`;
@@ -1349,6 +1399,7 @@ async function refreshClan() {
     document.querySelector("#clan .tabs").style.display = "none";
     return;
   }
+  myClanId = Number(clan.id);
   $("clan-forms").style.display = "none";
   document.querySelector("#clan .tabs").style.display = "flex";
   $("clan-title").innerHTML =
@@ -1434,13 +1485,33 @@ $("view-colors").onclick = () => {
   applyViewMode();
 };
 
-$("territory-toggle").onclick = () => {
-  territoryMode = !territoryMode;
-  $("territory-toggle").classList.toggle("on", territoryMode);
-  applyViewMode();
-  if (territoryMode) refreshTerritory();
-  else $("conquest").style.display = "none";
-};
+$("mode-conquest").onclick = () => setMode(true);
+$("mode-explore").onclick = () => setMode(false);
+
+// Coloration du territoire : par joueur, ou par CLAN (l'œuvre commune)
+let terrColorBy = "player";
+$("terr-by-player").onclick = () => setTerrColor("player");
+$("terr-by-clan").onclick = () => setTerrColor("clan");
+function setTerrColor(by) {
+  terrColorBy = by;
+  $("terr-by-player").classList.toggle("on", by === "player");
+  $("terr-by-clan").classList.toggle("on", by === "clan");
+  if (lastTerritoryGeo) { colorTerritory(lastTerritoryGeo); map.getSource("territory")?.setData(lastTerritoryGeo); }
+}
+const clanColors = {};
+function clanColor(id, mineClan) {
+  if (mineClan) return "#1e9e4f";
+  if (!clanColors[id]) clanColors[id] = OWNER_PALETTE[Object.keys(clanColors).length % OWNER_PALETTE.length];
+  return clanColors[id];
+}
+function colorTerritory(geo) {
+  for (const f of geo.features) {
+    const p = f.properties;
+    p.color = terrColorBy === "clan" && p.clan
+      ? clanColor(p.clan, myClanId != null && p.clan === myClanId)
+      : ownerColor(p.owner, p.mine);
+  }
+}
 
 // Couleur stable par propriétaire (le mien en vert de marque)
 const OWNER_PALETTE = ["#e23a3a", "#2e71f0", "#f5a623", "#8e3ae2", "#00a3a3", "#e24a9b", "#7a4e1d", "#d61f69"];
@@ -1453,6 +1524,8 @@ function ownerColor(id, mine) {
 
 // Charge et affiche le territoire partagé (turf war)
 let territoryPopulated = false;
+let lastTerritoryGeo = null;
+let myClanId = null; // posé par refreshClan
 async function refreshTerritory() {
   let geo = await api("/api/territory");
   // Recalcul depuis mes traces une fois par session : capture l'intérieur
@@ -1468,7 +1541,8 @@ async function refreshTerritory() {
     geo = await api("/api/territory");
   }
   if (!geo) return;
-  for (const f of geo.features) f.properties.color = ownerColor(f.properties.owner, f.properties.mine);
+  lastTerritoryGeo = geo;
+  colorTerritory(geo);
   map.getSource("territory")?.setData(geo);
   const lb = await api("/api/leaderboard/territory");
   const el = $("conquest");
@@ -1682,9 +1756,8 @@ async function boot() {
   $("delete-account").style.display = "block";
   $("strava-profile").href = "https://www.strava.com/athletes/" + me.id;
   $("strava-profile").style.display = "block";
-  $("period-tabs").style.display = "flex";
-  $("view-tabs").style.display = "flex";
-  $("territory-toggle").style.display = "block";
+  connected = true;
+  $("mode-tabs").style.display = "flex";
   $("period-year").textContent = String(new Date().getFullYear());
   $("share").style.display = "block";
   $("countries-btn").style.display = "block";
@@ -1700,7 +1773,8 @@ async function boot() {
       body: JSON.stringify({ code: pendingClan }),
     });
   }
-  refreshClan();
+  await refreshClan(); // myClanId d'abord : la vue Conquête colore par clan
+  setMode(true); // la CONQUÊTE est l'écran d'accueil du jeu
   poll(me); // couvre aussi le premier refreshRanking (dans son Promise.all)
   // traces GPS pour le brouillard fin (rechargées pendant la sync par poll)
   api("/api/activities").then((rows) => {
