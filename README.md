@@ -78,3 +78,30 @@ Pour le callback OAuth en local, mets `localhost` comme callback domain dans les
 - % de conquête par commune / département / pays
 - Ligues entre amis, cases contestées (le dernier passé la détient)
 - Badges : premières 100 cases, 4 pays, etc.
+
+## PWA & notifications push
+
+L'app est installable (manifest + service worker `public/sw.js`) et envoie
+deux notifications : « +N cases capturées 🏰 » à chaque sortie (webhook,
+jamais pendant le backfill initial) et « X t'a pris N cases ⚔️ » aux
+victimes d'un vol de territoire.
+
+```bash
+npm i web-push
+npx web-push generate-vapid-keys
+clever env set VAPID_PUBLIC_KEY "…" && clever env set VAPID_PRIVATE_KEY "…"
+clever env set VAPID_SUBJECT "mailto:toi@…"
+```
+
+Sans clés VAPID, tout fonctionne comme avant (push simplement désactivé).
+Sur iPhone (iOS 16.4+), les notifications exigent l'app installée :
+Partager → « Sur l'écran d'accueil ».
+
+## Filtre des sauts GPS
+
+Les traces sont découpées aux décrochages de montre (seuil adaptatif :
+max(2 km, 8 × médiane des segments)) avant tout calcul de cases — fini les
+diagonales fantômes à travers le pays. Au premier démarrage après cette
+version, une réparation ponctuelle (`repairGpsJumps`, marqueur
+`2026-07-gps-jump-filter`) reconstruit les cases et le territoire de chaque
+athlète depuis les polylines stockées, sans aucun appel Strava.

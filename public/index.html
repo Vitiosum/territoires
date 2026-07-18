@@ -8,6 +8,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0b1f1a">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   /* ── « Salle des cartes » : cartouche d'encre forêt sur la carte claire,
      filets laiton, numéraux d'expédition (Fraunces), Archivo en labeur ── */
@@ -292,6 +297,28 @@
   .maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: rgba(12, 33, 27, 0.95); }
   .pop-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
   #logout { all: unset; display: block; margin-top: 10px; font-size: 12px; color: var(--muted); cursor: pointer; text-decoration: underline; }
+  #push-toggle { all: unset; display: none; margin-top: 12px; font-size: 12.5px; color: var(--brand); cursor: pointer; text-decoration: underline; }
+  #push-hint { display: none; font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.45; }
+  #consent-modal {
+    position: fixed; inset: 0; z-index: 60; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(5, 15, 12, 0.72);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    padding: 20px;
+  }
+  #consent-card {
+    max-width: 380px;
+    background: linear-gradient(172deg, rgba(14, 38, 31, 0.97), rgba(8, 23, 19, 0.96));
+    border: 1px solid var(--brass-dim); border-radius: 18px; padding: 22px;
+    box-shadow: inset 0 1px 0 rgba(243, 236, 217, 0.07), 0 24px 60px rgba(5, 15, 12, 0.6);
+  }
+  #consent-card h2 { font-size: 18px; }
+  #consent-card p { font-size: 13px; margin-top: 10px; line-height: 1.55; opacity: .92; }
+  #consent-card .ok {
+    margin-top: 16px; width: 100%; padding: 11px; border: none; border-radius: 11px;
+    background: var(--brand); color: #06231b; font-weight: 700; font-size: 14px; cursor: pointer;
+  }
+  #consent-card .no { all: unset; display: block; margin: 12px auto 0; font-size: 12px; color: var(--muted); cursor: pointer; text-decoration: underline; }
 
   /* Les deux mondes du jeu : Conquête (turf war, par défaut) et Ma carte
      (exploration perso). L'onglet Conquête actif est doré, bien à part. */
@@ -478,6 +505,8 @@
     </div>
   </div>
 
+  <button id="push-toggle">🔔 Activer les notifications</button>
+  <p id="push-hint">Sur iPhone : ouvre dans Safari, Partager → « Sur l'écran d'accueil », puis reviens ici activer les notifications.</p>
   <button id="resync" style="display:none">⟳ Resynchroniser mes sorties Strava</button>
   <a id="strava-profile" href="https://www.strava.com" target="_blank" rel="noopener">Voir mon profil sur Strava ↗</a>
   <button id="logout" style="display:none">déconnexion</button>
@@ -487,6 +516,15 @@
     <svg viewBox="0 0 24 24" width="14" height="14" fill="#fc5200" aria-hidden="true"><path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169"/></svg>
     Powered by Strava
   </a>
+</div>
+
+<div id="consent-modal">
+  <div id="consent-card">
+    <h2>🏰 Avant de jouer</h2>
+    <p>Territoires est un jeu entre joueurs : ton <b>prénom</b>, ton <b>rang</b>, tes <b>cases conquises</b> et leurs <b>dates de prise</b> sont visibles des autres joueurs dans les classements et sur la carte territoire. Tes traces GPS, elles, ne sont jamais montrées.</p>
+    <button class="ok" id="consent-ok">J'accepte — à la conquête !</button>
+    <button class="no" id="consent-no">Je refuse — me déconnecter</button>
+  </div>
 </div>
 
 <div id="countries-modal">
@@ -1076,25 +1114,58 @@ function toGridFine(lat, lng, n) {
   ];
 }
 
+// Découpe une trace aux « sauts GPS » (même heuristique que le serveur :
+// max(2 km, 8 × médiane des segments)) — la montre qui décroche relie deux
+// points à travers le pays, on ne perce jamais le brouillard le long de
+// cette fausse ligne.
+function splitJumps(pts) {
+  if (pts.length < 2) return [pts];
+  const R = 6371000, rad = Math.PI / 180;
+  const dist = (a, b) => {
+    const dLat = (b[0] - a[0]) * rad, dLng = (b[1] - a[1]) * rad;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(a[0] * rad) * Math.cos(b[0] * rad) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  };
+  const lens = [];
+  for (let i = 1; i < pts.length; i++) lens.push(dist(pts[i - 1], pts[i]));
+  const cap = Math.max(2000, 8 * [...lens].sort((a, b) => a - b)[Math.floor(lens.length / 2)]);
+  let jumped = false;
+  const parts = [];
+  let cur = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    if (lens[i - 1] > cap) {
+      jumped = true;
+      if (cur.length >= 2) parts.push(cur); // point isolé = spike, on jette
+      cur = [];
+    }
+    cur.push(pts[i]);
+  }
+  if (!jumped) return [pts];
+  if (cur.length >= 2) parts.push(cur);
+  return parts;
+}
+
 // Rasterise une trace [[lat,lng]…] sur la grille fine : appelle mark(x,y)
 // pour chaque cellule traversée (+ croix), corridor watertight.
 function rasterizeTrace(pts, n, mark) {
   const cross = (cx, cy) => {
     mark(cx, cy); mark(cx + 1, cy); mark(cx - 1, cy); mark(cx, cy + 1); mark(cx, cy - 1);
   };
-  let prev = null;
-  for (const [lat, lng] of pts) {
-    const cur = toGridFine(lat, lng, n);
-    if (prev) {
-      const steps = Math.max(1, Math.ceil(2 * Math.max(Math.abs(cur[0] - prev[0]), Math.abs(cur[1] - prev[1]))));
-      for (let s = 1; s <= steps; s++) {
-        cross(Math.floor(prev[0] + ((cur[0] - prev[0]) * s) / steps),
-              Math.floor(prev[1] + ((cur[1] - prev[1]) * s) / steps));
+  for (const part of splitJumps(pts)) {
+    let prev = null;
+    for (const [lat, lng] of part) {
+      const cur = toGridFine(lat, lng, n);
+      if (prev) {
+        const steps = Math.max(1, Math.ceil(2 * Math.max(Math.abs(cur[0] - prev[0]), Math.abs(cur[1] - prev[1]))));
+        for (let s = 1; s <= steps; s++) {
+          cross(Math.floor(prev[0] + ((cur[0] - prev[0]) * s) / steps),
+                Math.floor(prev[1] + ((cur[1] - prev[1]) * s) / steps));
+        }
+      } else {
+        cross(Math.floor(cur[0]), Math.floor(cur[1]));
       }
-    } else {
-      cross(Math.floor(cur[0]), Math.floor(cur[1]));
+      prev = cur;
     }
-    prev = cur;
   }
 }
 
@@ -1825,6 +1896,8 @@ async function boot() {
   $("name").textContent = `${me.firstname} ${me.lastname ?? ""}`;
   $("subtitle").textContent = "Ta carte de conquête";
   if (me.profile && me.profile.startsWith("http")) $("avatar").src = me.profile;
+  await requireConsent(me); // bloque tout tant que le consentement n'est pas donné
+  initPushUI();
   const pendingClan = localStorage.getItem("pendingClan");
   if (pendingClan) {
     localStorage.removeItem("pendingClan");
@@ -2065,6 +2138,81 @@ async function shareCard() {
   }, "image/png");
 }
 $("share").onclick = shareCard;
+
+// --- PWA : service worker + notifications push ---
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
+
+const IS_IOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+const IS_INSTALLED =
+  window.matchMedia("(display-mode: standalone)").matches ||
+  navigator.standalone === true;
+
+function urlB64(b64) {
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
+async function subscribePush() {
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") throw new Error("permission refusée");
+  const reg = await navigator.serviceWorker.ready;
+  const r = await api("/api/push/key");
+  if (!r?.key) throw new Error("clé VAPID absente côté serveur");
+  const sub = await reg.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlB64(r.key),
+  });
+  await api("/api/push/subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(sub.toJSON()),
+  });
+}
+
+function initPushUI() {
+  // iOS : le push n'existe qu'une fois l'app installée (16.4+)
+  if (IS_IOS && !IS_INSTALLED) { $("push-hint").style.display = "block"; return; }
+  if (!("PushManager" in window) || !("Notification" in window)) return;
+  if (Notification.permission === "denied") return;
+  if (Notification.permission === "granted") {
+    subscribePush().catch(() => {}); // (re)synchronise l'abonnement en silence
+    return;
+  }
+  const btn = $("push-toggle");
+  btn.style.display = "block";
+  btn.onclick = async () => {
+    btn.style.pointerEvents = "none";
+    try {
+      await subscribePush(); // la permission se demande ICI, sur le clic
+      btn.textContent = "Notifications activées ✓";
+    } catch (e) {
+      console.error(e);
+      btn.style.pointerEvents = "";
+    }
+  };
+}
+
+// Consentement explicite (accord API Strava) : l'app reste bloquée sur la
+// modale tant que l'athlète n'a pas accepté d'être visible des autres.
+function requireConsent(me) {
+  return new Promise((resolve) => {
+    if (me.consent_at) return resolve();
+    $("consent-modal").style.display = "flex";
+    $("consent-ok").onclick = async () => {
+      await api("/api/consent", { method: "POST" });
+      me.consent_at = new Date().toISOString();
+      $("consent-modal").style.display = "none";
+      resolve();
+    };
+    $("consent-no").onclick = async () => {
+      await api("/auth/logout", { method: "POST" });
+      location.reload();
+    };
+  });
+}
 
 boot();
 

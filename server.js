@@ -12,7 +12,9 @@ import {
   deleteAthleteData,
   removeActivity,
   repairCapturedAt,
+  repairGpsJumps,
 } from "./lib/sync.js";
+import { ensurePushSchema, saveSubscription, deleteSubscription } from "./lib/push.js";
 import { tileToPolygon, tilesForTrack, decodePolyline, tileAreaKm2, tileRowAreaKm2, tileCenter, ZOOM } from "./lib/tiles.js";
 import { countryOf } from "./lib/countries.js";
 import { geocodePendingTiles } from "./lib/places.js";
@@ -135,7 +137,7 @@ app.post("/api/me/delete", requireAuth, async (req, res) => {
 const sexBackfillTried = new Set(); // un seul essai par athlète et par process
 app.get("/api/me", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT id, firstname, lastname, profile, sex, sync_status, sync_done, sync_total
+    `SELECT id, firstname, lastname, profile, sex, consent_at, sync_status, sync_done, sync_total
      FROM athletes WHERE id=$1`,
     [req.athleteId]
   );
@@ -171,6 +173,37 @@ app.get("/api/me", requireAuth, async (req, res) => {
     }
   }
   res.json(me);
+});
+
+// Consentement explicite (accord API Strava) : tant qu'il n'est pas
+// donné, l'athlète n'apparaît ni dans les classements ni sur la carte
+// partagée (filtres consent_at plus bas). Le front bloque l'app sur une
+// modale tant que /api/me renvoie consent_at nul.
+app.post("/api/consent", requireAuth, async (req, res) => {
+  await pool.query(
+    "UPDATE athletes SET consent_at = coalesce(consent_at, now()) WHERE id=$1",
+    [req.athleteId]
+  );
+  res.json({ ok: true });
+});
+
+// --- Notifications push (VAPID) ---
+app.get("/api/push/key", (req, res) => {
+  res.json({ key: process.env.VAPID_PUBLIC_KEY || null });
+});
+
+app.post("/api/push/subscribe", requireAuth, async (req, res) => {
+  try {
+    await saveSubscription(req.athleteId, req.body);
+    res.json({ ok: true });
+  } catch {
+    res.status(400).json({ error: "bad_subscription" });
+  }
+});
+
+app.post("/api/push/unsubscribe", requireAuth, async (req, res) => {
+  if (req.body?.endpoint) await deleteSubscription(req.body.endpoint);
+  res.json({ ok: true });
 });
 
 app.post("/api/sync", requireAuth, (req, res) => {
@@ -351,7 +384,8 @@ app.get("/api/leaderboard/public", async (req, res) => {
   const { rows } = await pool.query(
     `SELECT a.firstname, a.lastname, a.sex, count(*) OVER ()::int AS players,
        (SELECT count(*)::int FROM tiles t WHERE t.athlete_id=a.id) AS tiles
-     FROM athletes a ORDER BY tiles DESC, a.id LIMIT 5`
+     FROM athletes a WHERE a.consent_at IS NOT NULL
+     ORDER BY tiles DESC, a.id LIMIT 5`
   );
   res.json({
     top: rows
@@ -380,11 +414,13 @@ app.get("/api/leaderboard", requireAuth, async (req, res) => {
               JOIN activities act ON act.id = t.first_activity_id
             WHERE t.athlete_id = a.id AND act.start_date >= $1) AS tiles
          FROM athletes a
+         WHERE a.consent_at IS NOT NULL
          ORDER BY tiles DESC, a.id
          LIMIT 100`
       : `SELECT a.id, a.firstname, a.lastname, a.sex,
            (SELECT count(*)::int FROM tiles t WHERE t.athlete_id=a.id) AS tiles
          FROM athletes a
+         WHERE a.consent_at IS NOT NULL
          ORDER BY tiles DESC, a.id
          LIMIT 100`,
     since ? [since] : []
@@ -421,7 +457,8 @@ app.get("/api/territory", requireAuth, async (req, res) => {
      LEFT JOIN athletes sf ON sf.id = t.stolen_from
      LEFT JOIN clan_members cm ON cm.athlete_id = t.owner_id
      LEFT JOIN clans c ON c.id = cm.clan_id
-     LEFT JOIN tile_places p ON p.z = t.z AND p.x = t.x AND p.y = t.y`
+     LEFT JOIN tile_places p ON p.z = t.z AND p.x = t.x AND p.y = t.y
+     WHERE a.consent_at IS NOT NULL`
   );
   const short = (f, l) => (f || l ? `${f || ""} ${(l || "").slice(0, 1)}${l ? "." : ""}`.trim() : null);
   res.json({
@@ -455,6 +492,7 @@ app.get("/api/leaderboard/territory", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
     `SELECT t.owner_id, a.firstname, a.lastname, a.sex, t.z, t.y, count(*)::int AS n
      FROM territory t JOIN athletes a ON a.id = t.owner_id
+     WHERE a.consent_at IS NOT NULL
      GROUP BY t.owner_id, a.firstname, a.lastname, a.sex, t.z, t.y`
   );
   const by = new Map();
@@ -499,7 +537,7 @@ app.get("/api/cities", requireAuth, async (req, res) => {
        FROM territory te
        JOIN tile_places p ON p.z = te.z AND p.x = te.x AND p.y = te.y
        JOIN athletes a ON a.id = te.owner_id
-       WHERE p.city <> ''
+       WHERE p.city <> '' AND a.consent_at IS NOT NULL
        GROUP BY p.city, te.owner_id, a.firstname, a.lastname
      ) sub
      ORDER BY city, n DESC, owner_id`
@@ -565,7 +603,9 @@ app.get("/api/clans/member/:id/tiles", requireAuth, async (req, res) => {
   const { rows: same } = await pool.query(
     `SELECT 1 FROM clan_members m1
      JOIN clan_members m2 ON m2.clan_id = m1.clan_id
-     WHERE m1.athlete_id = $1 AND m2.athlete_id = $2 LIMIT 1`,
+     JOIN athletes o ON o.id = m2.athlete_id
+     WHERE m1.athlete_id = $1 AND m2.athlete_id = $2
+       AND o.consent_at IS NOT NULL LIMIT 1`,
     [req.athleteId, otherId]
   );
   if (!same.length) return res.status(403).json({ error: "not_clanmate" });
@@ -848,9 +888,13 @@ process.on("uncaughtException", (e) => console.error("uncaughtException:", e));
 
 // --- Démarrage ---
 await migrate();
+await ensurePushSchema().catch(console.error);
 // réparation ponctuelle des dates de prise du territoire (exécutée une
 // seule fois par base, marqueur dans app_migrations)
 await once("2026-07-repair-territory-captured-at", repairCapturedAt).catch(console.error);
 await resumeInterrupted();
 geocodePendingTiles(); // rattrapage communes en arrière-plan
 app.listen(PORT, () => console.log(`Territoires sur :${PORT}`));
+// nettoyage rétroactif des sauts GPS (une seule fois par base) : lancé
+// APRÈS l'écoute pour ne pas retarder le healthcheck du déploiement
+once("2026-07-gps-jump-filter", repairGpsJumps).catch(console.error);
