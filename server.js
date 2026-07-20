@@ -892,6 +892,16 @@ await ensurePushSchema().catch(console.error);
 // réparation ponctuelle des dates de prise du territoire (exécutée une
 // seule fois par base, marqueur dans app_migrations)
 await once("2026-07-repair-territory-captured-at", repairCapturedAt).catch(console.error);
+// Réintégration des athlètes déjà connectés avant l'ajout du consentement :
+// sans ça, la MAJ les masquait des classements/carte (consent_at NULL) alors
+// qu'ils avaient déjà lié leur Strava. On date leur consentement à leur
+// inscription ; les NOUVEAUX athlètes ont toujours NULL -> voient la modale.
+await once("2026-07-grandfather-consent", async () => {
+  const { rowCount } = await pool.query(
+    "UPDATE athletes SET consent_at = coalesce(created_at, now()) WHERE consent_at IS NULL"
+  );
+  console.log(`[grandfather] ${rowCount} athlète(s) réintégré(s) (consentement rétroactif)`);
+}).catch(console.error);
 await resumeInterrupted();
 geocodePendingTiles(); // rattrapage communes en arrière-plan
 app.listen(PORT, () => console.log(`Territoires sur :${PORT}`));
