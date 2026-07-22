@@ -1,4 +1,4 @@
-# Territoires — MVP
+# Tilevore — MVP
 
 Connecte ton Strava, récupère tout ton historique, et regarde la carte se colorer : chaque sortie capture des cases (tuiles slippy map zoom 14, comme Veloviewer / Squadrats).
 

@@ -1,9 +1,9 @@
-/* Territoires — service worker (PWA + push)
+/* Tilevore — service worker (PWA + push)
  * À servir depuis la racine (/sw.js) pour couvrir tout le site. */
 
-const VERSION = "v1"; // incrémente à chaque déploiement du front
-const SHELL_CACHE = `territoires-shell-${VERSION}`;
-const TILE_CACHE = "territoires-tiles"; // survit aux versions
+const VERSION = "v2"; // incrémente à chaque déploiement du front
+const SHELL_CACHE = `tilevore-shell-${VERSION}`;
+const TILE_CACHE = "tilevore-tiles"; // survit aux versions
 
 // ADAPTE : les fichiers de ta coquille (CSS/JS séparés si tu en as)
 const SHELL = ["/", "/manifest.webmanifest", "/icons/icon-192.png"];
@@ -117,7 +117,7 @@ self.addEventListener("push", (e) => {
   } catch {
     data = { body: e.data ? e.data.text() : "" };
   }
-  const title = data.title || "Territoires";
+  const title = data.title || "Tilevore";
   e.waitUntil(
     self.registration.showNotification(title, {
       body: data.body || "",

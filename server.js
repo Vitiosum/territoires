@@ -904,7 +904,7 @@ await once("2026-07-grandfather-consent", async () => {
 }).catch(console.error);
 await resumeInterrupted();
 geocodePendingTiles(); // rattrapage communes en arrière-plan
-app.listen(PORT, () => console.log(`Territoires sur :${PORT}`));
+app.listen(PORT, () => console.log(`Tilevore sur :${PORT}`));
 // nettoyage rétroactif des sauts GPS (une seule fois par base) : lancé
 // APRÈS l'écoute pour ne pas retarder le healthcheck du déploiement
 once("2026-07-gps-jump-filter", repairGpsJumps).catch(console.error);

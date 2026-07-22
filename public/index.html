@@ -3,7 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Territoires — ta carte de conquête</title>
+<title>Tilevore — le jeu qui dévore la carte, case par case</title>
+<meta name="description" content="Tilevore transforme tes sorties Strava en jeu de conquête entre amis : chaque course ou sortie vélo dévore des cases et agrandit ton territoire.">
+<meta property="og:title" content="Tilevore">
+<meta property="og:description" content="Chaque sortie dévore des cases : conquiers, défends, affronte tes amis.">
+<meta property="og:image" content="/icons/icon-512.png">
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -412,7 +416,7 @@
   <div id="sheet-handle" title="Ouvrir / fermer"></div>
   <div class="head">
     <img id="avatar" alt="">
-    <div><b id="name">Territoires</b><span id="subtitle">Chaque sortie capture des cases.</span></div>
+    <div><b id="name">Tilevore</b><span id="subtitle">Chaque sortie capture des cases.</span></div>
     <button id="countries-btn" title="Mes pays">🌍</button>
     <button id="share" title="Partager ma carte"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg></button>
   </div>
@@ -521,7 +525,7 @@
 <div id="consent-modal">
   <div id="consent-card">
     <h2>🏰 Avant de jouer</h2>
-    <p>Territoires est un jeu entre joueurs : ton <b>prénom</b>, ton <b>rang</b>, tes <b>cases conquises</b> et leurs <b>dates de prise</b> sont visibles des autres joueurs dans les classements et sur la carte territoire. Tes traces GPS, elles, ne sont jamais montrées.</p>
+    <p>Tilevore est un jeu entre joueurs : ton <b>prénom</b>, ton <b>rang</b>, tes <b>cases conquises</b> et leurs <b>dates de prise</b> sont visibles des autres joueurs dans les classements et sur la carte territoire. Tes traces GPS, elles, ne sont jamais montrées.</p>
     <button class="ok" id="consent-ok">J'accepte — à la conquête !</button>
     <button class="no" id="consent-no">Je refuse — me déconnecter</button>
   </div>
@@ -1494,9 +1498,9 @@ async function refreshClan() {
   // (même avant connexion : le code est retenu jusqu'à l'OAuth).
   $("clan-invite").onclick = async () => {
     const link = `${location.origin}/?clan=${encodeURIComponent(clan.invite_code)}`;
-    const msg = `Rejoins mon clan « ${clan.name} » sur Territoires !`;
+    const msg = `Rejoins mon clan « ${clan.name} » sur Tilevore !`;
     if (navigator.share) {
-      try { await navigator.share({ title: "Territoires", text: msg, url: link }); return; } catch {}
+      try { await navigator.share({ title: "Tilevore", text: msg, url: link }); return; } catch {}
     }
     try {
       await navigator.clipboard.writeText(`${msg} ${link}`);

@@ -1,5 +1,5 @@
 {
-  "name": "territoires",
+  "name": "tilevore",
   "version": "0.1.0",
   "description": "Carte de territoires conquis via Strava - MVP Clever Cloud",
   "main": "server.js",
