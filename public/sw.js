@@ -1,7 +1,7 @@
 /* Tilevore — service worker (PWA + push)
  * À servir depuis la racine (/sw.js) pour couvrir tout le site. */
 
-const VERSION = "v2"; // incrémente à chaque déploiement du front
+const VERSION = "v3"; // incrémente à chaque déploiement du front
 const SHELL_CACHE = `tilevore-shell-${VERSION}`;
 const TILE_CACHE = "tilevore-tiles"; // survit aux versions
 

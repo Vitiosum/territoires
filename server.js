@@ -41,7 +41,16 @@ app.use((req, res, next) => {
 app.use(compression());
 app.use(express.json());
 app.use(cookieParser(process.env.APP_SECRET));
-app.use(express.static("public"));
+app.use(express.static("public", {
+  // statiques cacheables 1 h (icônes, dictionnaires i18n, manifest) ; la
+  // coquille (index.html) et le service worker restent toujours revalidés
+  // pour que chaque déploiement soit visible immédiatement
+  maxAge: "1h",
+  setHeaders: (res, path) => {
+    if (path.endsWith("index.html") || path.endsWith("sw.js"))
+      res.setHeader("Cache-Control", "public, max-age=0");
+  },
+}));
 
 // Express 4 ne rattrape pas les rejets des handlers async : un rejet non
 // géré (ex. coupure PostgreSQL transitoire) tuerait le process. On enrobe
@@ -190,7 +199,7 @@ app.post("/api/consent", requireAuth, async (req, res) => {
 // Langue d'interface du joueur : sert au front (persistance entre
 // appareils) et au serveur (notifications push traduites).
 app.post("/api/lang", requireAuth, async (req, res) => {
-  const lang = ["fr", "en", "it"].includes(req.body?.lang) ? req.body.lang : null;
+  const lang = ["fr", "en", "it", "es", "de", "pt", "nl", "pl"].includes(req.body?.lang) ? req.body.lang : null;
   if (!lang) return res.status(400).json({ error: "bad_lang" });
   await pool.query("UPDATE athletes SET lang=$1 WHERE id=$2", [lang, req.athleteId]);
   res.json({ ok: true });
@@ -300,7 +309,7 @@ const localizeCountries = (data, lang) =>
   lang === "fr" ? data : data.map((c) => ({ ...c, name: c.names?.[lang] || c.name }));
 
 app.get("/api/countries", requireAuth, async (req, res) => {
-  const lang = ["fr", "en", "it"].includes(req.query.lang) ? req.query.lang : "fr";
+  const lang = ["fr", "en", "it", "es", "de", "pt", "nl", "pl"].includes(req.query.lang) ? req.query.lang : "fr";
   const { rows: v } = await pool.query(
     `SELECT (SELECT count(*) FROM tiles WHERE athlete_id=$1) || ':' ||
             (SELECT count(*) FROM activities WHERE athlete_id=$1 AND polyline IS NOT NULL) AS key`,
@@ -379,16 +388,15 @@ app.get("/api/countries", requireAuth, async (req, res) => {
 // aucun nom ni identifiant réel (conformité affichage Strava).
 app.get("/api/territory/public", async (req, res) => {
   const { rows } = await pool.query("SELECT z, x, y, owner_id FROM territory");
+  // Format compact : [x, y, indexPropriétaire] par case, le client reconstruit
+  // les polygones (l'ancien GeoJSON répétait 5 paires de coordonnées par case
+  // : ~130 Ko gzippés sur la page d'accueil, ~10x moins ainsi).
   const idx = new Map(); // owner_id -> index anonyme, stable dans la réponse
   res.json({
-    type: "FeatureCollection",
-    features: rows.map((t) => {
+    z: ZOOM,
+    t: rows.map((t) => {
       if (!idx.has(t.owner_id)) idx.set(t.owner_id, idx.size);
-      return {
-        type: "Feature",
-        properties: { o: idx.get(t.owner_id) },
-        geometry: { type: "Polygon", coordinates: tileToPolygon(t.x, t.y, t.z) },
-      };
+      return [t.x, t.y, idx.get(t.owner_id)];
     }),
   });
 });
@@ -475,23 +483,38 @@ app.get("/api/territory", requireAuth, async (req, res) => {
      WHERE a.consent_at IS NOT NULL`
   );
   const short = (f, l) => (f || l ? `${f || ""} ${(l || "").slice(0, 1)}${l ? "." : ""}`.trim() : null);
-  res.json({
-    type: "FeatureCollection",
-    features: rows.map((t) => ({
-      type: "Feature",
-      properties: {
-        owner: Number(t.owner_id),
+  // Format compact : les infos par PROPRIÉTAIRE (nom, clan) partent une seule
+  // fois dans une table `owners`, les voleurs et villes dans des tables
+  // dédupliquées ; chaque case = [x, y, ownerIdx, capturedAtMs, stolenIdx, cityIdx]
+  // (-1 = absent). Le client reconstruit le GeoJSON d'origine.
+  const owners = []; const ownerIdx = new Map();
+  const dict = (arr, map) => (v) => {
+    if (v == null || v === "") return -1;
+    if (!map.has(v)) { map.set(v, arr.length); arr.push(v); }
+    return map.get(v);
+  };
+  const thieves = []; const thiefIdx = dict(thieves, new Map());
+  const cities = []; const cityIdx = dict(cities, new Map());
+  const tArr = rows.map((t) => {
+    const oid = Number(t.owner_id);
+    if (!ownerIdx.has(oid)) {
+      ownerIdx.set(oid, owners.length);
+      owners.push({
+        id: oid,
         name: `${t.firstname || ""} ${t.lastname || ""}`.trim(),
-        mine: Number(t.owner_id) === req.athleteId,
-        capturedAt: t.captured_at,
-        stolenFrom: short(t.sf_firstname, t.sf_lastname),
+        mine: oid === req.athleteId,
         clan: t.clan_id ? Number(t.clan_id) : null,
         clanName: t.clan_name || null,
-        city: t.city || null,
-      },
-      geometry: { type: "Polygon", coordinates: tileToPolygon(t.x, t.y, t.z) },
-    })),
+      });
+    }
+    return [
+      t.x, t.y, ownerIdx.get(oid),
+      t.captured_at ? new Date(t.captured_at).getTime() : -1,
+      thiefIdx(short(t.sf_firstname, t.sf_lastname)),
+      cityIdx(t.city || null),
+    ];
   });
+  res.json({ z: ZOOM, owners, thieves, cities, t: tArr });
 });
 
 // Recalcule le territoire de l'athlète depuis ses traces déjà stockées

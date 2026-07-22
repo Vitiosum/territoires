@@ -167,7 +167,7 @@
     display: none; width: 100%; margin-top: 6px; padding: 6px; font-size: 12px;
     color: #e08b7f; background: none; border: 0; cursor: pointer; text-decoration: underline;
   }
-  #lang-switch { display: flex; justify-content: center; gap: 6px; margin-top: 12px; }
+  #lang-switch { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 12px; }
   #lang-switch button {
     padding: 4px 10px; font-size: 11.5px; letter-spacing: .04em; border-radius: 7px;
     border: 1px solid var(--brass-dim); background: none; color: var(--muted); cursor: pointer;
@@ -522,7 +522,7 @@
   <button id="logout" style="display:none">déconnexion</button>
   <button id="delete-account">Supprimer mon compte et toutes mes données</button>
   <div id="lang-switch" role="group" aria-label="Langue">
-    <button data-lang="fr">FR</button><button data-lang="en">EN</button><button data-lang="it">IT</button>
+    <button data-lang="fr">FR</button><button data-lang="en">EN</button><button data-lang="it">IT</button><button data-lang="es">ES</button><button data-lang="de">DE</button><button data-lang="pt">PT</button><button data-lang="nl">NL</button><button data-lang="pl">PL</button>
   </div>
 
   <a id="powered" href="https://www.strava.com" target="_blank" rel="noopener">
@@ -630,303 +630,16 @@ function esc(s) {
 // langue active, ou le français tel quel (repli sûr : une clé manquante
 // n'affiche jamais un trou). {var} interpolés après traduction.
 // I18N est injecté plus bas (dictionnaires en/it générés depuis le source).
-let I18N = {
-"en": {
-"(toi)": " (you)",
-"en {y}": " in {y}",
-"· 🔥 {n} sem.": " · 🔥 {n} wk",
-"< 0,01 %": "< 0.01%",
-"Analyse de tes voyages : {done} / {total} activités": "Analyzing your travels: {done} / {total} activities",
-"Aucun clan pour l'instant": "No clans yet",
-"Aucune case pour l'instant": "No tiles yet",
-"Aucune ville pour l'instant": "No cities yet",
-"Bienvenue ! Laisse-nous quelques instants pour récupérer ton historique…": "Welcome! Give us a moment to fetch your history…",
-"Calcul en cours…": "Crunching…",
-"Case conquise": "Captured tile",
-"Case hybride": "Hybrid tile",
-"Chef du clan": "Clan leader",
-"Clan": "Clan",
-"Classement": "Leaderboard",
-"Code inconnu": "Unknown code",
-"Copie ce lien d'invitation :": "Copy this invite link:",
-"Défis de la semaine": "Weekly challenges",
-"Encerclée par ton territoire, comptée conquise": "Surrounded by your territory — counts as conquered",
-"Enclave": "Enclave",
-"Faire de {name} le chef du clan ? Tu perdras tes pouvoirs de chef.": "Make {name} the clan leader? You'll lose your leader powers.",
-"Femme": "Female",
-"Homme": "Male",
-"Mon territoire Tilevore": "My Tilevore territory",
-"Nommer chef du clan": "Make clan leader",
-"Notifications activées ✓": "Notifications on ✓",
-"Nouveau nom du clan :": "New clan name:",
-"On analyse où tu as voyagé… tes zones apparaissent en direct ✨": "Analyzing where you've been… your zones appear live ✨",
-"Pas encore de clan": "No clan yet",
-"Quitter le clan « {name} » ?": "Leave clan “{name}”?",
-"Rejoins mon clan « {name} » sur Tilevore !": "Join my clan “{name}” on Tilevore!",
-"Renommer le clan": "Rename clan",
-"Roule ou encercle une zone pour la conquérir.": "Ride over or encircle a zone to conquer it.",
-"Récupération de ton historique Strava…": "Fetching your Strava history…",
-"Supprimer définitivement ton compte, tes activités et tout ton territoire ? L'accès Strava sera aussi révoqué.": "Permanently delete your account, your activities and all your territory? Strava access will also be revoked.",
-"Ta carte de conquête": "Your conquest map",
-"Territoire vierge — à toi de jouer": "Unclaimed territory — go get it",
-"Tu es chef : le rôle passera au membre le plus ancien.": "You're the leader: the role passes to the longest-standing member.",
-"Tu es le dernier membre : le clan sera supprimé.": "You're the last member: the clan will be deleted.",
-"Voir mes cases : {name}": "See my tiles: {name}",
-"Y aller ›": "Go ›",
-"Zone principale": "Main zone",
-"Zone principale : {place}": "Main zone: {place}",
-"Zone principale : …": "Main zone: …",
-"cases": "tiles",
-"cases volées": "stolen tiles",
-"prise le {when}": "taken on {when}",
-"quitter le clan": "leave clan",
-"tu tiens la ville": "you hold the city",
-"{a} / {b} cases": "{a} / {b} tiles",
-"{n} cases": "{n} tiles",
-"{n} km² conquis": "{n} km² conquered",
-"à prendre — personne encore cette semaine": "up for grabs — no one yet this week",
-"≈ {n} % de {unit}": "≈ {n}% of {unit}",
-"≈ {n} × {unit}": "≈ {n} × {unit}",
-"⚔️ Pillard de la semaine": "⚔️ Raider of the week",
-"⚔️ volée à {name}": "⚔️ stolen from {name}",
-"✓ Lien copié": "✓ Link copied",
-"🌐 Repérage des communes en cours — la liste s'enrichit toute seule": "🌐 Mapping towns in progress — the list grows on its own",
-"🏁 Déjà 1 explorateur — viens prendre sa place.": "🏁 Already 1 explorer — come take their place.",
-"🏁 Déjà {n} explorateurs — viens prendre leur place.": "🏁 Already {n} explorers — come take their place.",
-"🏆 Saison {y}": "🏆 Season {y}",
-"🏰 Calcul de ton territoire…": "🏰 Computing your territory…",
-"🏰 Territoire pris": "🏰 Territory taken",
-"🏰 Ton territoire : <b>{n} cases</b> · {km} km² · #{rank}": "🏰 Your territory: <b>{n} tiles</b> · {km} km² · #{rank}",
-"👀 Carte de {name}": "👀 {name}'s map",
-"👀 voir sa carte": "👀 view map",
-"👑 Roi": "👑 King",
-"Duc": "Duke",
-"Vicomte": "Viscount",
-"Baron": "Baron",
-"💪 La plus longue sortie": "💪 Longest activity",
-"🔗 Inviter": "🔗 Invite",
-"🗺️ Nouvelles cases conquises": "🗺️ New tiles captured",
-"🚨 <b>1 case perdue cette semaine</b> — va la reprendre !": "🚨 <b>1 tile lost this week</b> — go take it back!",
-"🚨 <b>{n} cases perdues cette semaine</b> — va les reprendre !": "🚨 <b>{n} tiles lost this week</b> — go take them back!",
-"🚴 Le plus de kilomètres": "🚴 Most kilometers",
-"🛡️ Tu vas rejoindre le clan « {name} » — connecte-toi pour entrer.": "🛡️ You're about to join clan “{name}” — sign in to enter.",
-"Fer": "Iron",
-"Bronze": "Bronze",
-"Argent": "Silver",
-"Or": "Gold",
-"Platine": "Platinum",
-"Émeraude": "Emerald",
-"Diamant": "Diamond",
-"Maître": "Master",
-"Grand Maître": "Grandmaster",
-"Conquérant": "Conqueror",
-"Empereur": "Emperor",
-"Légende": "Legend",
-"Paris": "Paris",
-"la Corse": "Corsica",
-"la Belgique": "Belgium",
-"la France": "France",
-"Tilevore — le jeu qui dévore la carte, case par case": "Tilevore — the game that devours the map, tile by tile",
-"Chaque sortie capture des cases.": "Every activity captures tiles.",
-"<span aria-hidden=\"true\">⤓</span> Synchroniser mes sorties Strava": "<span aria-hidden=\"true\">⤓</span> Sync my Strava activities",
-"Le podium": "The podium",
-"🏁 Rejoins l'aventure — ta place t'attend.": "🏁 Join the adventure — your spot awaits.",
-"🏰 Conquête": "🏰 Conquest",
-"🧭 Ma carte": "🧭 My map",
-"Par joueur": "By player",
-"Par clan": "By clan",
-"Tout": "All",
-"Cette année": "This year",
-"<span class=\"em\">🌫️ </span>Brouillard": "<span class=\"em\">🌫️ </span>Fog",
-"<span class=\"em\">🎨 </span>Couleurs": "<span class=\"em\">🎨 </span>Colors",
-"Synchronisation…": "Syncing…",
-"Gratuit · connexion Strava en un clic · tes données restent à toi": "Free · one-click Strava sign-in · your data stays yours",
-"En te connectant, tu acceptes que ton prénom, ton rang et tes cases conquises (jamais tes traces GPS) soient visibles des autres joueurs dans les classements et sur la carte territoire.": "By signing in, you accept that your first name, rank and captured tiles (never your GPS tracks) are visible to other players in leaderboards and on the territory map.",
-"Kilomètres": "Kilometers",
-"Cases conquises": "Tiles captured",
-"Créer mon clan": "Create my clan",
-"Rejoindre": "Join",
-"🔔 Activer les notifications": "🔔 Enable notifications",
-"Sur iPhone : ouvre dans Safari, Partager → « Sur l'écran d'accueil », puis reviens ici activer les notifications.": "On iPhone: open in Safari, Share → “Add to Home Screen”, then come back here to enable notifications.",
-"⟳ Resynchroniser mes sorties Strava": "⟳ Re-sync my Strava activities",
-"Voir mon profil sur Strava ↗": "View my Strava profile ↗",
-"déconnexion": "log out",
-"Supprimer mon compte et toutes mes données": "Delete my account and all my data",
-"J'accepte — à la conquête !": "I accept — onward to conquest!",
-"Je refuse — me déconnecter": "I decline — log me out",
-"Y aller": "Go",
-"Pays": "Countries",
-"Villes": "Cities",
-"% du pays": "% of country",
-"Cases": "Tiles",
-"Joueurs": "Players",
-"Clans": "Clans",
-"Territoire": "Territory",
-"✕ ma carte": "✕ my map",
-"Mes pays": "My countries",
-"Partager ma carte": "Share my map",
-"Ouvrir / fermer": "Open / close",
-"Nom du clan à créer": "Name of the clan to create",
-"Code d'invitation": "Invite code",
-"Connecte ton Strava et regarde chaque sortie <b>capturer des cases</b> sur la carte. Conquiers ton quartier, monte en rang, défie tes amis en clan.": "Connect your Strava and watch every activity <b>capture tiles</b> on the map. Conquer your neighborhood, climb the ranks, challenge your friends in a clan.",
-"🏰 Avant de jouer": "🏰 Before you play",
-"Tilevore est un jeu entre joueurs : ton <b>prénom</b>, ton <b>rang</b>, tes <b>cases conquises</b> et leurs <b>dates de prise</b> sont visibles des autres joueurs dans les classements et sur la carte territoire. Tes traces GPS, elles, ne sont jamais montrées.": "Tilevore is a game between players: your <b>first name</b>, <b>rank</b>, <b>captured tiles</b> and their <b>capture dates</b> are visible to other players in leaderboards and on the territory map. Your GPS tracks are never shown.",
-"🌍 Mes zones": "🌍 My zones",
-"sorties": "activities"
-},
-"it": {
-"(toi)": " (tu)",
-"en {y}": " nel {y}",
-"· 🔥 {n} sem.": " · 🔥 {n} sett.",
-"< 0,01 %": "< 0,01 %",
-"Analyse de tes voyages : {done} / {total} activités": "Analisi dei tuoi viaggi: {done} / {total} attività",
-"Aucun clan pour l'instant": "Nessun clan per ora",
-"Aucune case pour l'instant": "Nessuna casella per ora",
-"Aucune ville pour l'instant": "Nessuna città per ora",
-"Bienvenue ! Laisse-nous quelques instants pour récupérer ton historique…": "Benvenuto! Dacci qualche istante per recuperare il tuo storico…",
-"Calcul en cours…": "Calcolo in corso…",
-"Case conquise": "Casella conquistata",
-"Case hybride": "Casella ibrida",
-"Chef du clan": "Capo del clan",
-"Clan": "Clan",
-"Classement": "Classifica",
-"Code inconnu": "Codice sconosciuto",
-"Copie ce lien d'invitation :": "Copia questo link d'invito:",
-"Défis de la semaine": "Sfide della settimana",
-"Encerclée par ton territoire, comptée conquise": "Circondata dal tuo territorio, contata come conquistata",
-"Enclave": "Enclave",
-"Faire de {name} le chef du clan ? Tu perdras tes pouvoirs de chef.": "Rendere {name} capo del clan? Perderai i tuoi poteri di capo.",
-"Femme": "Donna",
-"Homme": "Uomo",
-"Mon territoire Tilevore": "Il mio territorio Tilevore",
-"Nommer chef du clan": "Nomina capo del clan",
-"Notifications activées ✓": "Notifiche attivate ✓",
-"Nouveau nom du clan :": "Nuovo nome del clan:",
-"On analyse où tu as voyagé… tes zones apparaissent en direct ✨": "Analizziamo dove sei stato… le tue zone appaiono in diretta ✨",
-"Pas encore de clan": "Ancora nessun clan",
-"Quitter le clan « {name} » ?": "Lasciare il clan «{name}»?",
-"Rejoins mon clan « {name} » sur Tilevore !": "Unisciti al mio clan «{name}» su Tilevore!",
-"Renommer le clan": "Rinomina il clan",
-"Roule ou encercle une zone pour la conquérir.": "Passa sopra o circonda una zona per conquistarla.",
-"Récupération de ton historique Strava…": "Recupero del tuo storico Strava…",
-"Supprimer définitivement ton compte, tes activités et tout ton territoire ? L'accès Strava sera aussi révoqué.": "Eliminare definitivamente il tuo account, le attività e tutto il tuo territorio? Anche l'accesso Strava sarà revocato.",
-"Ta carte de conquête": "La tua mappa di conquista",
-"Territoire vierge — à toi de jouer": "Territorio vergine — tocca a te",
-"Tu es chef : le rôle passera au membre le plus ancien.": "Sei il capo: il ruolo passerà al membro più anziano.",
-"Tu es le dernier membre : le clan sera supprimé.": "Sei l'ultimo membro: il clan sarà eliminato.",
-"Voir mes cases : {name}": "Vedi le mie caselle: {name}",
-"Y aller ›": "Vai ›",
-"Zone principale": "Zona principale",
-"Zone principale : {place}": "Zona principale: {place}",
-"Zone principale : …": "Zona principale: …",
-"cases": "caselle",
-"cases volées": "caselle rubate",
-"prise le {when}": "presa il {when}",
-"quitter le clan": "lascia il clan",
-"tu tiens la ville": "la città è tua",
-"{a} / {b} cases": "{a} / {b} caselle",
-"{n} cases": "{n} caselle",
-"{n} km² conquis": "{n} km² conquistati",
-"à prendre — personne encore cette semaine": "in palio — ancora nessuno questa settimana",
-"≈ {n} % de {unit}": "≈ {n} % di {unit}",
-"≈ {n} × {unit}": "≈ {n} × {unit}",
-"⚔️ Pillard de la semaine": "⚔️ Predone della settimana",
-"⚔️ volée à {name}": "⚔️ rubata a {name}",
-"✓ Lien copié": "✓ Link copiato",
-"🌐 Repérage des communes en cours — la liste s'enrichit toute seule": "🌐 Rilevamento dei comuni in corso — la lista cresce da sola",
-"🏁 Déjà 1 explorateur — viens prendre sa place.": "🏁 Già 1 esploratore — vieni a prendere il suo posto.",
-"🏁 Déjà {n} explorateurs — viens prendre leur place.": "🏁 Già {n} esploratori — vieni a prendere il loro posto.",
-"🏆 Saison {y}": "🏆 Stagione {y}",
-"🏰 Calcul de ton territoire…": "🏰 Calcolo del tuo territorio…",
-"🏰 Territoire pris": "🏰 Territorio preso",
-"🏰 Ton territoire : <b>{n} cases</b> · {km} km² · #{rank}": "🏰 Il tuo territorio: <b>{n} caselle</b> · {km} km² · #{rank}",
-"👀 Carte de {name}": "👀 Mappa di {name}",
-"👀 voir sa carte": "👀 vedi la mappa",
-"👑 Roi": "👑 Re",
-"Duc": "Duca",
-"Vicomte": "Visconte",
-"Baron": "Barone",
-"💪 La plus longue sortie": "💪 L'uscita più lunga",
-"🔗 Inviter": "🔗 Invita",
-"🗺️ Nouvelles cases conquises": "🗺️ Nuove caselle conquistate",
-"🚨 <b>1 case perdue cette semaine</b> — va la reprendre !": "🚨 <b>1 casella persa questa settimana</b> — vai a riprendertela!",
-"🚨 <b>{n} cases perdues cette semaine</b> — va les reprendre !": "🚨 <b>{n} caselle perse questa settimana</b> — vai a riprendertele!",
-"🚴 Le plus de kilomètres": "🚴 Più chilometri",
-"🛡️ Tu vas rejoindre le clan « {name} » — connecte-toi pour entrer.": "🛡️ Stai per unirti al clan «{name}» — accedi per entrare.",
-"Fer": "Ferro",
-"Bronze": "Bronzo",
-"Argent": "Argento",
-"Or": "Oro",
-"Platine": "Platino",
-"Émeraude": "Smeraldo",
-"Diamant": "Diamante",
-"Maître": "Maestro",
-"Grand Maître": "Gran Maestro",
-"Conquérant": "Conquistatore",
-"Empereur": "Imperatore",
-"Légende": "Leggenda",
-"Paris": "Parigi",
-"la Corse": "la Corsica",
-"la Belgique": "il Belgio",
-"la France": "la Francia",
-"Tilevore — le jeu qui dévore la carte, case par case": "Tilevore — il gioco che divora la mappa, casella dopo casella",
-"Chaque sortie capture des cases.": "Ogni uscita conquista caselle.",
-"<span aria-hidden=\"true\">⤓</span> Synchroniser mes sorties Strava": "<span aria-hidden=\"true\">⤓</span> Sincronizza le mie uscite Strava",
-"Le podium": "Il podio",
-"🏁 Rejoins l'aventure — ta place t'attend.": "🏁 Unisciti all'avventura — il tuo posto ti aspetta.",
-"🏰 Conquête": "🏰 Conquista",
-"🧭 Ma carte": "🧭 La mia mappa",
-"Par joueur": "Per giocatore",
-"Par clan": "Per clan",
-"Tout": "Tutto",
-"Cette année": "Quest'anno",
-"<span class=\"em\">🌫️ </span>Brouillard": "<span class=\"em\">🌫️ </span>Nebbia",
-"<span class=\"em\">🎨 </span>Couleurs": "<span class=\"em\">🎨 </span>Colori",
-"Synchronisation…": "Sincronizzazione…",
-"Gratuit · connexion Strava en un clic · tes données restent à toi": "Gratis · accesso Strava in un clic · i tuoi dati restano tuoi",
-"En te connectant, tu acceptes que ton prénom, ton rang et tes cases conquises (jamais tes traces GPS) soient visibles des autres joueurs dans les classements et sur la carte territoire.": "Accedendo, accetti che il tuo nome, il tuo grado e le tue caselle conquistate (mai le tue tracce GPS) siano visibili agli altri giocatori nelle classifiche e sulla mappa del territorio.",
-"Kilomètres": "Chilometri",
-"Cases conquises": "Caselle conquistate",
-"Créer mon clan": "Crea il mio clan",
-"Rejoindre": "Unisciti",
-"🔔 Activer les notifications": "🔔 Attiva le notifiche",
-"Sur iPhone : ouvre dans Safari, Partager → « Sur l'écran d'accueil », puis reviens ici activer les notifications.": "Su iPhone: apri in Safari, Condividi → «Aggiungi alla schermata Home», poi torna qui per attivare le notifiche.",
-"⟳ Resynchroniser mes sorties Strava": "⟳ Risincronizza le mie uscite Strava",
-"Voir mon profil sur Strava ↗": "Vedi il mio profilo Strava ↗",
-"déconnexion": "esci",
-"Supprimer mon compte et toutes mes données": "Elimina il mio account e tutti i miei dati",
-"J'accepte — à la conquête !": "Accetto — alla conquista!",
-"Je refuse — me déconnecter": "Rifiuto — disconnettimi",
-"Y aller": "Vai",
-"Pays": "Paesi",
-"Villes": "Città",
-"% du pays": "% del paese",
-"Cases": "Caselle",
-"Joueurs": "Giocatori",
-"Clans": "Clan",
-"Territoire": "Territorio",
-"✕ ma carte": "✕ la mia mappa",
-"Mes pays": "I miei paesi",
-"Partager ma carte": "Condividi la mia mappa",
-"Ouvrir / fermer": "Apri / chiudi",
-"Nom du clan à créer": "Nome del clan da creare",
-"Code d'invitation": "Codice d'invito",
-"Connecte ton Strava et regarde chaque sortie <b>capturer des cases</b> sur la carte. Conquiers ton quartier, monte en rang, défie tes amis en clan.": "Collega il tuo Strava e guarda ogni uscita <b>conquistare caselle</b> sulla mappa. Conquista il tuo quartiere, sali di grado, sfida i tuoi amici in clan.",
-"🏰 Avant de jouer": "🏰 Prima di giocare",
-"Tilevore est un jeu entre joueurs : ton <b>prénom</b>, ton <b>rang</b>, tes <b>cases conquises</b> et leurs <b>dates de prise</b> sont visibles des autres joueurs dans les classements et sur la carte territoire. Tes traces GPS, elles, ne sont jamais montrées.": "Tilevore è un gioco tra giocatori: il tuo <b>nome</b>, il tuo <b>grado</b>, le tue <b>caselle conquistate</b> e le loro <b>date di presa</b> sono visibili agli altri giocatori nelle classifiche e sulla mappa del territorio. Le tue tracce GPS non vengono mai mostrate.",
-"🌍 Mes zones": "🌍 Le mie zone",
-"sorties": "uscite"
-}
-};
-const LANGS = ["fr", "en", "it"];
+let I18N = {}; // dictionnaire de la langue ACTIVE seulement, chargé depuis /i18n/xx.json
+const LANGS = ["fr", "en", "it", "es", "de", "pt", "nl", "pl"];
 let LANG =
   localStorage.getItem("lang") ||
   LANGS.find((l) => (navigator.language || "").toLowerCase().startsWith(l)) ||
   "en";
-const LOCALE = { fr: "fr-FR", en: "en-GB", it: "it-IT" }[LANG] || "fr-FR";
+const LOCALE = { fr: "fr-FR", en: "en-GB", it: "it-IT", es: "es-ES", de: "de-DE", pt: "pt-PT", nl: "nl-NL", pl: "pl-PL" }[LANG] || "fr-FR";
 const nrm = (s) => s.replace(/\s+/g, " ").trim();
 function t(s, vars) {
-  let out = LANG === "fr" ? s : I18N[LANG]?.[nrm(s)] ?? s;
+  let out = LANG === "fr" ? s : I18N[nrm(s)] ?? s;
   if (vars) for (const [k, v] of Object.entries(vars)) out = out.replaceAll(`{${k}}`, v);
   return out;
 }
@@ -995,6 +708,47 @@ function setLang(l) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ lang: l }),
   }).catch(() => {}).finally(() => location.reload());
+}
+
+// --- Territoire compact -> GeoJSON (transport ~10x plus léger) ---
+// Le serveur envoie [x, y, ownerIdx, …] par case ; on reconstruit ici le
+// polygone de chaque case et les propriétés attendues par le rendu/popups.
+function tileRing(x, y, z) {
+  const n = 2 ** z;
+  const lng = (gx) => (gx / n) * 360 - 180;
+  const lat = (gy) => (Math.atan(Math.sinh(Math.PI * (1 - (2 * gy) / n))) * 180) / Math.PI;
+  return [[lng(x), lat(y)], [lng(x + 1), lat(y)], [lng(x + 1), lat(y + 1)], [lng(x), lat(y + 1)], [lng(x), lat(y)]];
+}
+function expandPublicTerritory(d) {
+  if (!d?.t) return d; // déjà en GeoJSON (compat)
+  return {
+    type: "FeatureCollection",
+    features: d.t.map(([x, y, o]) => ({
+      type: "Feature",
+      properties: { o },
+      geometry: { type: "Polygon", coordinates: [tileRing(x, y, d.z)] },
+    })),
+  };
+}
+function expandTerritory(d) {
+  if (!d?.t) return d;
+  return {
+    type: "FeatureCollection",
+    features: d.t.map(([x, y, oi, cap, th, ci]) => {
+      const o = d.owners[oi] || {};
+      return {
+        type: "Feature",
+        properties: {
+          owner: o.id, name: o.name, mine: !!o.mine,
+          capturedAt: cap >= 0 ? cap : null,
+          stolenFrom: th >= 0 ? d.thieves[th] : null,
+          clan: o.clan, clanName: o.clanName,
+          city: ci >= 0 ? d.cities[ci] : null,
+        },
+        geometry: { type: "Polygon", coordinates: [tileRing(x, y, d.z)] },
+      };
+    }),
+  };
 }
 
 let firstFit = true;
@@ -2045,7 +1799,7 @@ let territoryPopulated = false;
 let lastTerritoryGeo = null;
 let myClanId = null; // posé par refreshClan
 async function refreshTerritory() {
-  let geo = await api("/api/territory");
+  let geo = expandTerritory(await api("/api/territory"));
   // Recalcul depuis mes traces une fois par session : capture l'intérieur
   // des boucles bouclées depuis la dernière sync (et peuple la 1re ouverture)
   if (geo && !territoryPopulated) {
@@ -2056,7 +1810,7 @@ async function refreshTerritory() {
     const ok = await api("/api/territory/refresh", { method: "POST" });
     // en cas d'échec transitoire, on retentera à la prochaine ouverture
     if (ok) territoryPopulated = true;
-    geo = await api("/api/territory");
+    geo = expandTerritory(await api("/api/territory"));
   }
   if (!geo) return;
   lastTerritoryGeo = geo;
@@ -2240,7 +1994,8 @@ async function boot() {
     // L'accueil montre le territoire déjà conquis (anonyme, couleurs par
     // joueur sans aucun nom) plutôt qu'un voile sombre vide : on voit tout
     // de suite à quoi on joue.
-    api("/api/territory/public").then((geo) => {
+    api("/api/territory/public").then((raw) => {
+      const geo = expandPublicTerritory(raw);
       if (!geo?.features?.length) return;
       for (const f of geo.features)
         f.properties.color = OWNER_PALETTE[f.properties.o % OWNER_PALETTE.length];
@@ -2622,13 +2377,20 @@ function requireConsent(me) {
   });
 }
 
-applyStaticI18n();
-for (const b of document.querySelectorAll("#lang-switch button")) {
-  b.classList.toggle("on", b.dataset.lang === LANG);
-  b.onclick = () => setLang(b.dataset.lang);
-}
-
-boot();
+(async () => {
+  // seul le dictionnaire de la langue active est téléchargé (le français,
+  // langue du source, n'a besoin d'aucun fichier) ; en cas d'échec réseau,
+  // l'app reste utilisable en français
+  if (LANG !== "fr") {
+    try { I18N = await (await fetch(`/i18n/${LANG}.json`)).json(); } catch {}
+  }
+  applyStaticI18n();
+  for (const b of document.querySelectorAll("#lang-switch button")) {
+    b.classList.toggle("on", b.dataset.lang === LANG);
+    b.onclick = () => setLang(b.dataset.lang);
+  }
+  boot();
+})();
 
 $("connect").onclick = () => (location.href = "/auth/strava");
 $("delete-account").onclick = async () => {
