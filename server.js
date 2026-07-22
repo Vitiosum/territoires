@@ -137,7 +137,7 @@ app.post("/api/me/delete", requireAuth, async (req, res) => {
 const sexBackfillTried = new Set(); // un seul essai par athlète et par process
 app.get("/api/me", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT id, firstname, lastname, profile, sex, consent_at, sync_status, sync_done, sync_total
+    `SELECT id, firstname, lastname, profile, sex, consent_at, lang, sync_status, sync_done, sync_total
      FROM athletes WHERE id=$1`,
     [req.athleteId]
   );
@@ -184,6 +184,15 @@ app.post("/api/consent", requireAuth, async (req, res) => {
     "UPDATE athletes SET consent_at = coalesce(consent_at, now()) WHERE id=$1",
     [req.athleteId]
   );
+  res.json({ ok: true });
+});
+
+// Langue d'interface du joueur : sert au front (persistance entre
+// appareils) et au serveur (notifications push traduites).
+app.post("/api/lang", requireAuth, async (req, res) => {
+  const lang = ["fr", "en", "it"].includes(req.body?.lang) ? req.body.lang : null;
+  if (!lang) return res.status(400).json({ error: "bad_lang" });
+  await pool.query("UPDATE athletes SET lang=$1 WHERE id=$2", [lang, req.athleteId]);
   res.json({ ok: true });
 });
 
@@ -286,14 +295,19 @@ app.get("/api/stats", requireAuth, async (req, res) => {
 // nb activités AVEC trace) bouge — compter les polylines non nulles couvre
 // le backfill d'une activité webhook qui ne crée aucune nouvelle case —
 // et invalidé explicitement par le webhook et les resyncs.
+// Le cache interne reste en FR ; le nom est localisé à la réponse
+const localizeCountries = (data, lang) =>
+  lang === "fr" ? data : data.map((c) => ({ ...c, name: c.names?.[lang] || c.name }));
+
 app.get("/api/countries", requireAuth, async (req, res) => {
+  const lang = ["fr", "en", "it"].includes(req.query.lang) ? req.query.lang : "fr";
   const { rows: v } = await pool.query(
     `SELECT (SELECT count(*) FROM tiles WHERE athlete_id=$1) || ':' ||
             (SELECT count(*) FROM activities WHERE athlete_id=$1 AND polyline IS NOT NULL) AS key`,
     [req.athleteId]
   );
   const hit = countriesCache.get(req.athleteId);
-  if (hit && hit.key === v[0].key) return res.json(hit.data);
+  if (hit && hit.key === v[0].key) return res.json(localizeCountries(hit.data, lang));
 
   const { rows: tiles } = await pool.query(
     "SELECT x, y, z FROM tiles WHERE athlete_id=$1",
@@ -303,7 +317,7 @@ app.get("/api/countries", requireAuth, async (req, res) => {
   const bucket = (c) => {
     if (!byCountry.has(c.name)) {
       byCountry.set(c.name, {
-        name: c.name, flag: c.flag, country_km2: c.areaKm2,
+        name: c.name, names: c.names, flag: c.flag, country_km2: c.areaKm2,
         tiles: 0, area_km2: 0, km: 0, activities: 0, bounds: null,
       });
     }
@@ -357,7 +371,7 @@ app.get("/api/countries", requireAuth, async (req, res) => {
     .sort((a, b) => b.pct - a.pct);
   if (countriesCache.size > 500) countriesCache.delete(countriesCache.keys().next().value); // borne mémoire (FIFO)
   countriesCache.set(req.athleteId, { key: v[0].key, data: out });
-  res.json(out);
+  res.json(localizeCountries(out, lang));
 });
 
 // Carte publique de l'accueil : le territoire conquis, ANONYMISÉ — les

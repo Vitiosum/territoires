@@ -167,6 +167,12 @@
     display: none; width: 100%; margin-top: 6px; padding: 6px; font-size: 12px;
     color: #e08b7f; background: none; border: 0; cursor: pointer; text-decoration: underline;
   }
+  #lang-switch { display: flex; justify-content: center; gap: 6px; margin-top: 12px; }
+  #lang-switch button {
+    padding: 4px 10px; font-size: 11.5px; letter-spacing: .04em; border-radius: 7px;
+    border: 1px solid var(--brass-dim); background: none; color: var(--muted); cursor: pointer;
+  }
+  #lang-switch button.on { background: var(--brand); border-color: var(--brand); color: #06231b; font-weight: 700; }
   #strava-profile { display: none; margin-top: 10px; font-size: 12px; color: #fc7433; text-decoration: underline; }
   #powered {
     display: flex; align-items: center; justify-content: center; gap: 6px;
@@ -515,6 +521,9 @@
   <a id="strava-profile" href="https://www.strava.com" target="_blank" rel="noopener">Voir mon profil sur Strava ↗</a>
   <button id="logout" style="display:none">déconnexion</button>
   <button id="delete-account">Supprimer mon compte et toutes mes données</button>
+  <div id="lang-switch" role="group" aria-label="Langue">
+    <button data-lang="fr">FR</button><button data-lang="en">EN</button><button data-lang="it">IT</button>
+  </div>
 
   <a id="powered" href="https://www.strava.com" target="_blank" rel="noopener">
     <svg viewBox="0 0 24 24" width="14" height="14" fill="#fc5200" aria-hidden="true"><path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169"/></svg>
@@ -615,6 +624,379 @@ function esc(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
   );
 }
+
+// ── i18n ─────────────────────────────────────────────────────────────
+// Le FRANÇAIS du source est la clé : t("…") rend la traduction de la
+// langue active, ou le français tel quel (repli sûr : une clé manquante
+// n'affiche jamais un trou). {var} interpolés après traduction.
+// I18N est injecté plus bas (dictionnaires en/it générés depuis le source).
+let I18N = {
+"en": {
+"(toi)": " (you)",
+"en {y}": " in {y}",
+"· 🔥 {n} sem.": " · 🔥 {n} wk",
+"< 0,01 %": "< 0.01%",
+"Analyse de tes voyages : {done} / {total} activités": "Analyzing your travels: {done} / {total} activities",
+"Aucun clan pour l'instant": "No clans yet",
+"Aucune case pour l'instant": "No tiles yet",
+"Aucune ville pour l'instant": "No cities yet",
+"Bienvenue ! Laisse-nous quelques instants pour récupérer ton historique…": "Welcome! Give us a moment to fetch your history…",
+"Calcul en cours…": "Crunching…",
+"Case conquise": "Captured tile",
+"Case hybride": "Hybrid tile",
+"Chef du clan": "Clan leader",
+"Clan": "Clan",
+"Classement": "Leaderboard",
+"Code inconnu": "Unknown code",
+"Copie ce lien d'invitation :": "Copy this invite link:",
+"Défis de la semaine": "Weekly challenges",
+"Encerclée par ton territoire, comptée conquise": "Surrounded by your territory — counts as conquered",
+"Enclave": "Enclave",
+"Faire de {name} le chef du clan ? Tu perdras tes pouvoirs de chef.": "Make {name} the clan leader? You'll lose your leader powers.",
+"Femme": "Female",
+"Homme": "Male",
+"Mon territoire Tilevore": "My Tilevore territory",
+"Nommer chef du clan": "Make clan leader",
+"Notifications activées ✓": "Notifications on ✓",
+"Nouveau nom du clan :": "New clan name:",
+"On analyse où tu as voyagé… tes zones apparaissent en direct ✨": "Analyzing where you've been… your zones appear live ✨",
+"Pas encore de clan": "No clan yet",
+"Quitter le clan « {name} » ?": "Leave clan “{name}”?",
+"Rejoins mon clan « {name} » sur Tilevore !": "Join my clan “{name}” on Tilevore!",
+"Renommer le clan": "Rename clan",
+"Roule ou encercle une zone pour la conquérir.": "Ride over or encircle a zone to conquer it.",
+"Récupération de ton historique Strava…": "Fetching your Strava history…",
+"Supprimer définitivement ton compte, tes activités et tout ton territoire ? L'accès Strava sera aussi révoqué.": "Permanently delete your account, your activities and all your territory? Strava access will also be revoked.",
+"Ta carte de conquête": "Your conquest map",
+"Territoire vierge — à toi de jouer": "Unclaimed territory — go get it",
+"Tu es chef : le rôle passera au membre le plus ancien.": "You're the leader: the role passes to the longest-standing member.",
+"Tu es le dernier membre : le clan sera supprimé.": "You're the last member: the clan will be deleted.",
+"Voir mes cases : {name}": "See my tiles: {name}",
+"Y aller ›": "Go ›",
+"Zone principale": "Main zone",
+"Zone principale : {place}": "Main zone: {place}",
+"Zone principale : …": "Main zone: …",
+"cases": "tiles",
+"cases volées": "stolen tiles",
+"prise le {when}": "taken on {when}",
+"quitter le clan": "leave clan",
+"tu tiens la ville": "you hold the city",
+"{a} / {b} cases": "{a} / {b} tiles",
+"{n} cases": "{n} tiles",
+"{n} km² conquis": "{n} km² conquered",
+"à prendre — personne encore cette semaine": "up for grabs — no one yet this week",
+"≈ {n} % de {unit}": "≈ {n}% of {unit}",
+"≈ {n} × {unit}": "≈ {n} × {unit}",
+"⚔️ Pillard de la semaine": "⚔️ Raider of the week",
+"⚔️ volée à {name}": "⚔️ stolen from {name}",
+"✓ Lien copié": "✓ Link copied",
+"🌐 Repérage des communes en cours — la liste s'enrichit toute seule": "🌐 Mapping towns in progress — the list grows on its own",
+"🏁 Déjà 1 explorateur — viens prendre sa place.": "🏁 Already 1 explorer — come take their place.",
+"🏁 Déjà {n} explorateurs — viens prendre leur place.": "🏁 Already {n} explorers — come take their place.",
+"🏆 Saison {y}": "🏆 Season {y}",
+"🏰 Calcul de ton territoire…": "🏰 Computing your territory…",
+"🏰 Territoire pris": "🏰 Territory taken",
+"🏰 Ton territoire : <b>{n} cases</b> · {km} km² · #{rank}": "🏰 Your territory: <b>{n} tiles</b> · {km} km² · #{rank}",
+"👀 Carte de {name}": "👀 {name}'s map",
+"👀 voir sa carte": "👀 view map",
+"👑 Roi": "👑 King",
+"Duc": "Duke",
+"Vicomte": "Viscount",
+"Baron": "Baron",
+"💪 La plus longue sortie": "💪 Longest activity",
+"🔗 Inviter": "🔗 Invite",
+"🗺️ Nouvelles cases conquises": "🗺️ New tiles captured",
+"🚨 <b>1 case perdue cette semaine</b> — va la reprendre !": "🚨 <b>1 tile lost this week</b> — go take it back!",
+"🚨 <b>{n} cases perdues cette semaine</b> — va les reprendre !": "🚨 <b>{n} tiles lost this week</b> — go take them back!",
+"🚴 Le plus de kilomètres": "🚴 Most kilometers",
+"🛡️ Tu vas rejoindre le clan « {name} » — connecte-toi pour entrer.": "🛡️ You're about to join clan “{name}” — sign in to enter.",
+"Fer": "Iron",
+"Bronze": "Bronze",
+"Argent": "Silver",
+"Or": "Gold",
+"Platine": "Platinum",
+"Émeraude": "Emerald",
+"Diamant": "Diamond",
+"Maître": "Master",
+"Grand Maître": "Grandmaster",
+"Conquérant": "Conqueror",
+"Empereur": "Emperor",
+"Légende": "Legend",
+"Paris": "Paris",
+"la Corse": "Corsica",
+"la Belgique": "Belgium",
+"la France": "France",
+"Tilevore — le jeu qui dévore la carte, case par case": "Tilevore — the game that devours the map, tile by tile",
+"Chaque sortie capture des cases.": "Every activity captures tiles.",
+"<span aria-hidden=\"true\">⤓</span> Synchroniser mes sorties Strava": "<span aria-hidden=\"true\">⤓</span> Sync my Strava activities",
+"Le podium": "The podium",
+"🏁 Rejoins l'aventure — ta place t'attend.": "🏁 Join the adventure — your spot awaits.",
+"🏰 Conquête": "🏰 Conquest",
+"🧭 Ma carte": "🧭 My map",
+"Par joueur": "By player",
+"Par clan": "By clan",
+"Tout": "All",
+"Cette année": "This year",
+"<span class=\"em\">🌫️ </span>Brouillard": "<span class=\"em\">🌫️ </span>Fog",
+"<span class=\"em\">🎨 </span>Couleurs": "<span class=\"em\">🎨 </span>Colors",
+"Synchronisation…": "Syncing…",
+"Gratuit · connexion Strava en un clic · tes données restent à toi": "Free · one-click Strava sign-in · your data stays yours",
+"En te connectant, tu acceptes que ton prénom, ton rang et tes cases conquises (jamais tes traces GPS) soient visibles des autres joueurs dans les classements et sur la carte territoire.": "By signing in, you accept that your first name, rank and captured tiles (never your GPS tracks) are visible to other players in leaderboards and on the territory map.",
+"Kilomètres": "Kilometers",
+"Cases conquises": "Tiles captured",
+"Créer mon clan": "Create my clan",
+"Rejoindre": "Join",
+"🔔 Activer les notifications": "🔔 Enable notifications",
+"Sur iPhone : ouvre dans Safari, Partager → « Sur l'écran d'accueil », puis reviens ici activer les notifications.": "On iPhone: open in Safari, Share → “Add to Home Screen”, then come back here to enable notifications.",
+"⟳ Resynchroniser mes sorties Strava": "⟳ Re-sync my Strava activities",
+"Voir mon profil sur Strava ↗": "View my Strava profile ↗",
+"déconnexion": "log out",
+"Supprimer mon compte et toutes mes données": "Delete my account and all my data",
+"J'accepte — à la conquête !": "I accept — onward to conquest!",
+"Je refuse — me déconnecter": "I decline — log me out",
+"Y aller": "Go",
+"Pays": "Countries",
+"Villes": "Cities",
+"% du pays": "% of country",
+"Cases": "Tiles",
+"Joueurs": "Players",
+"Clans": "Clans",
+"Territoire": "Territory",
+"✕ ma carte": "✕ my map",
+"Mes pays": "My countries",
+"Partager ma carte": "Share my map",
+"Ouvrir / fermer": "Open / close",
+"Nom du clan à créer": "Name of the clan to create",
+"Code d'invitation": "Invite code",
+"Connecte ton Strava et regarde chaque sortie <b>capturer des cases</b> sur la carte. Conquiers ton quartier, monte en rang, défie tes amis en clan.": "Connect your Strava and watch every activity <b>capture tiles</b> on the map. Conquer your neighborhood, climb the ranks, challenge your friends in a clan.",
+"🏰 Avant de jouer": "🏰 Before you play",
+"Tilevore est un jeu entre joueurs : ton <b>prénom</b>, ton <b>rang</b>, tes <b>cases conquises</b> et leurs <b>dates de prise</b> sont visibles des autres joueurs dans les classements et sur la carte territoire. Tes traces GPS, elles, ne sont jamais montrées.": "Tilevore is a game between players: your <b>first name</b>, <b>rank</b>, <b>captured tiles</b> and their <b>capture dates</b> are visible to other players in leaderboards and on the territory map. Your GPS tracks are never shown.",
+"🌍 Mes zones": "🌍 My zones",
+"sorties": "activities"
+},
+"it": {
+"(toi)": " (tu)",
+"en {y}": " nel {y}",
+"· 🔥 {n} sem.": " · 🔥 {n} sett.",
+"< 0,01 %": "< 0,01 %",
+"Analyse de tes voyages : {done} / {total} activités": "Analisi dei tuoi viaggi: {done} / {total} attività",
+"Aucun clan pour l'instant": "Nessun clan per ora",
+"Aucune case pour l'instant": "Nessuna casella per ora",
+"Aucune ville pour l'instant": "Nessuna città per ora",
+"Bienvenue ! Laisse-nous quelques instants pour récupérer ton historique…": "Benvenuto! Dacci qualche istante per recuperare il tuo storico…",
+"Calcul en cours…": "Calcolo in corso…",
+"Case conquise": "Casella conquistata",
+"Case hybride": "Casella ibrida",
+"Chef du clan": "Capo del clan",
+"Clan": "Clan",
+"Classement": "Classifica",
+"Code inconnu": "Codice sconosciuto",
+"Copie ce lien d'invitation :": "Copia questo link d'invito:",
+"Défis de la semaine": "Sfide della settimana",
+"Encerclée par ton territoire, comptée conquise": "Circondata dal tuo territorio, contata come conquistata",
+"Enclave": "Enclave",
+"Faire de {name} le chef du clan ? Tu perdras tes pouvoirs de chef.": "Rendere {name} capo del clan? Perderai i tuoi poteri di capo.",
+"Femme": "Donna",
+"Homme": "Uomo",
+"Mon territoire Tilevore": "Il mio territorio Tilevore",
+"Nommer chef du clan": "Nomina capo del clan",
+"Notifications activées ✓": "Notifiche attivate ✓",
+"Nouveau nom du clan :": "Nuovo nome del clan:",
+"On analyse où tu as voyagé… tes zones apparaissent en direct ✨": "Analizziamo dove sei stato… le tue zone appaiono in diretta ✨",
+"Pas encore de clan": "Ancora nessun clan",
+"Quitter le clan « {name} » ?": "Lasciare il clan «{name}»?",
+"Rejoins mon clan « {name} » sur Tilevore !": "Unisciti al mio clan «{name}» su Tilevore!",
+"Renommer le clan": "Rinomina il clan",
+"Roule ou encercle une zone pour la conquérir.": "Passa sopra o circonda una zona per conquistarla.",
+"Récupération de ton historique Strava…": "Recupero del tuo storico Strava…",
+"Supprimer définitivement ton compte, tes activités et tout ton territoire ? L'accès Strava sera aussi révoqué.": "Eliminare definitivamente il tuo account, le attività e tutto il tuo territorio? Anche l'accesso Strava sarà revocato.",
+"Ta carte de conquête": "La tua mappa di conquista",
+"Territoire vierge — à toi de jouer": "Territorio vergine — tocca a te",
+"Tu es chef : le rôle passera au membre le plus ancien.": "Sei il capo: il ruolo passerà al membro più anziano.",
+"Tu es le dernier membre : le clan sera supprimé.": "Sei l'ultimo membro: il clan sarà eliminato.",
+"Voir mes cases : {name}": "Vedi le mie caselle: {name}",
+"Y aller ›": "Vai ›",
+"Zone principale": "Zona principale",
+"Zone principale : {place}": "Zona principale: {place}",
+"Zone principale : …": "Zona principale: …",
+"cases": "caselle",
+"cases volées": "caselle rubate",
+"prise le {when}": "presa il {when}",
+"quitter le clan": "lascia il clan",
+"tu tiens la ville": "la città è tua",
+"{a} / {b} cases": "{a} / {b} caselle",
+"{n} cases": "{n} caselle",
+"{n} km² conquis": "{n} km² conquistati",
+"à prendre — personne encore cette semaine": "in palio — ancora nessuno questa settimana",
+"≈ {n} % de {unit}": "≈ {n} % di {unit}",
+"≈ {n} × {unit}": "≈ {n} × {unit}",
+"⚔️ Pillard de la semaine": "⚔️ Predone della settimana",
+"⚔️ volée à {name}": "⚔️ rubata a {name}",
+"✓ Lien copié": "✓ Link copiato",
+"🌐 Repérage des communes en cours — la liste s'enrichit toute seule": "🌐 Rilevamento dei comuni in corso — la lista cresce da sola",
+"🏁 Déjà 1 explorateur — viens prendre sa place.": "🏁 Già 1 esploratore — vieni a prendere il suo posto.",
+"🏁 Déjà {n} explorateurs — viens prendre leur place.": "🏁 Già {n} esploratori — vieni a prendere il loro posto.",
+"🏆 Saison {y}": "🏆 Stagione {y}",
+"🏰 Calcul de ton territoire…": "🏰 Calcolo del tuo territorio…",
+"🏰 Territoire pris": "🏰 Territorio preso",
+"🏰 Ton territoire : <b>{n} cases</b> · {km} km² · #{rank}": "🏰 Il tuo territorio: <b>{n} caselle</b> · {km} km² · #{rank}",
+"👀 Carte de {name}": "👀 Mappa di {name}",
+"👀 voir sa carte": "👀 vedi la mappa",
+"👑 Roi": "👑 Re",
+"Duc": "Duca",
+"Vicomte": "Visconte",
+"Baron": "Barone",
+"💪 La plus longue sortie": "💪 L'uscita più lunga",
+"🔗 Inviter": "🔗 Invita",
+"🗺️ Nouvelles cases conquises": "🗺️ Nuove caselle conquistate",
+"🚨 <b>1 case perdue cette semaine</b> — va la reprendre !": "🚨 <b>1 casella persa questa settimana</b> — vai a riprendertela!",
+"🚨 <b>{n} cases perdues cette semaine</b> — va les reprendre !": "🚨 <b>{n} caselle perse questa settimana</b> — vai a riprendertele!",
+"🚴 Le plus de kilomètres": "🚴 Più chilometri",
+"🛡️ Tu vas rejoindre le clan « {name} » — connecte-toi pour entrer.": "🛡️ Stai per unirti al clan «{name}» — accedi per entrare.",
+"Fer": "Ferro",
+"Bronze": "Bronzo",
+"Argent": "Argento",
+"Or": "Oro",
+"Platine": "Platino",
+"Émeraude": "Smeraldo",
+"Diamant": "Diamante",
+"Maître": "Maestro",
+"Grand Maître": "Gran Maestro",
+"Conquérant": "Conquistatore",
+"Empereur": "Imperatore",
+"Légende": "Leggenda",
+"Paris": "Parigi",
+"la Corse": "la Corsica",
+"la Belgique": "il Belgio",
+"la France": "la Francia",
+"Tilevore — le jeu qui dévore la carte, case par case": "Tilevore — il gioco che divora la mappa, casella dopo casella",
+"Chaque sortie capture des cases.": "Ogni uscita conquista caselle.",
+"<span aria-hidden=\"true\">⤓</span> Synchroniser mes sorties Strava": "<span aria-hidden=\"true\">⤓</span> Sincronizza le mie uscite Strava",
+"Le podium": "Il podio",
+"🏁 Rejoins l'aventure — ta place t'attend.": "🏁 Unisciti all'avventura — il tuo posto ti aspetta.",
+"🏰 Conquête": "🏰 Conquista",
+"🧭 Ma carte": "🧭 La mia mappa",
+"Par joueur": "Per giocatore",
+"Par clan": "Per clan",
+"Tout": "Tutto",
+"Cette année": "Quest'anno",
+"<span class=\"em\">🌫️ </span>Brouillard": "<span class=\"em\">🌫️ </span>Nebbia",
+"<span class=\"em\">🎨 </span>Couleurs": "<span class=\"em\">🎨 </span>Colori",
+"Synchronisation…": "Sincronizzazione…",
+"Gratuit · connexion Strava en un clic · tes données restent à toi": "Gratis · accesso Strava in un clic · i tuoi dati restano tuoi",
+"En te connectant, tu acceptes que ton prénom, ton rang et tes cases conquises (jamais tes traces GPS) soient visibles des autres joueurs dans les classements et sur la carte territoire.": "Accedendo, accetti che il tuo nome, il tuo grado e le tue caselle conquistate (mai le tue tracce GPS) siano visibili agli altri giocatori nelle classifiche e sulla mappa del territorio.",
+"Kilomètres": "Chilometri",
+"Cases conquises": "Caselle conquistate",
+"Créer mon clan": "Crea il mio clan",
+"Rejoindre": "Unisciti",
+"🔔 Activer les notifications": "🔔 Attiva le notifiche",
+"Sur iPhone : ouvre dans Safari, Partager → « Sur l'écran d'accueil », puis reviens ici activer les notifications.": "Su iPhone: apri in Safari, Condividi → «Aggiungi alla schermata Home», poi torna qui per attivare le notifiche.",
+"⟳ Resynchroniser mes sorties Strava": "⟳ Risincronizza le mie uscite Strava",
+"Voir mon profil sur Strava ↗": "Vedi il mio profilo Strava ↗",
+"déconnexion": "esci",
+"Supprimer mon compte et toutes mes données": "Elimina il mio account e tutti i miei dati",
+"J'accepte — à la conquête !": "Accetto — alla conquista!",
+"Je refuse — me déconnecter": "Rifiuto — disconnettimi",
+"Y aller": "Vai",
+"Pays": "Paesi",
+"Villes": "Città",
+"% du pays": "% del paese",
+"Cases": "Caselle",
+"Joueurs": "Giocatori",
+"Clans": "Clan",
+"Territoire": "Territorio",
+"✕ ma carte": "✕ la mia mappa",
+"Mes pays": "I miei paesi",
+"Partager ma carte": "Condividi la mia mappa",
+"Ouvrir / fermer": "Apri / chiudi",
+"Nom du clan à créer": "Nome del clan da creare",
+"Code d'invitation": "Codice d'invito",
+"Connecte ton Strava et regarde chaque sortie <b>capturer des cases</b> sur la carte. Conquiers ton quartier, monte en rang, défie tes amis en clan.": "Collega il tuo Strava e guarda ogni uscita <b>conquistare caselle</b> sulla mappa. Conquista il tuo quartiere, sali di grado, sfida i tuoi amici in clan.",
+"🏰 Avant de jouer": "🏰 Prima di giocare",
+"Tilevore est un jeu entre joueurs : ton <b>prénom</b>, ton <b>rang</b>, tes <b>cases conquises</b> et leurs <b>dates de prise</b> sont visibles des autres joueurs dans les classements et sur la carte territoire. Tes traces GPS, elles, ne sont jamais montrées.": "Tilevore è un gioco tra giocatori: il tuo <b>nome</b>, il tuo <b>grado</b>, le tue <b>caselle conquistate</b> e le loro <b>date di presa</b> sono visibili agli altri giocatori nelle classifiche e sulla mappa del territorio. Le tue tracce GPS non vengono mai mostrate.",
+"🌍 Mes zones": "🌍 Le mie zone",
+"sorties": "uscite"
+}
+};
+const LANGS = ["fr", "en", "it"];
+let LANG =
+  localStorage.getItem("lang") ||
+  LANGS.find((l) => (navigator.language || "").toLowerCase().startsWith(l)) ||
+  "en";
+const LOCALE = { fr: "fr-FR", en: "en-GB", it: "it-IT" }[LANG] || "fr-FR";
+const nrm = (s) => s.replace(/\s+/g, " ").trim();
+function t(s, vars) {
+  let out = LANG === "fr" ? s : I18N[LANG]?.[nrm(s)] ?? s;
+  if (vars) for (const [k, v] of Object.entries(vars)) out = out.replaceAll(`{${k}}`, v);
+  return out;
+}
+
+// Textes statiques : la source française est lue UNE fois dans le DOM
+// (aucune table de français dupliquée), puis remplacée par t(source).
+const STATIC_I18N = [
+  ["subtitle", "text"], ["sync-btn", "html"], ["welcome-top-title", "text"],
+  ["welcome-join", "text"], ["mode-conquest", "text"], ["mode-explore", "text"],
+  ["terr-by-player", "text"], ["terr-by-clan", "text"], ["period-all", "text"],
+  ["period-year", "text"], ["view-fog", "html"], ["view-colors", "html"],
+  ["lvl-count", "text"], ["progress-label", "text"], ["welcome-free", "text"],
+  ["consent", "text"], ["clan-title", "text"], ["tab-km", "text"],
+  ["tab-tiles", "text"], ["create-clan", "text"], ["join-clan", "text"],
+  ["push-toggle", "text"], ["push-hint", "text"], ["resync", "text"],
+  ["strava-profile", "text"], ["logout", "text"], ["delete-account", "text"],
+  ["consent-ok", "text"], ["consent-no", "text"], ["main-zone-label", "text"],
+  ["main-zone-go", "text"], ["zones-countries", "text"], ["zones-cities", "text"],
+  ["csort-pct", "text"], ["csort-km", "text"], ["csort-tiles", "text"],
+  ["lb-players", "text"], ["lb-clans", "text"], ["lb-territory", "text"],
+  ["spectate-exit", "text"],
+];
+const staticSrc = new Map();
+function applyStaticI18n() {
+  document.documentElement.lang = LANG;
+  for (const [id, mode] of STATIC_I18N) {
+    const el = $(id);
+    if (!el) continue;
+    const cur = mode === "html" ? el.innerHTML : el.textContent;
+    if (!staticSrc.has(id)) staticSrc.set(id, cur);
+    const val = t(staticSrc.get(id));
+    if (mode === "html") el.innerHTML = val;
+    else el.textContent = val;
+  }
+  // titres d'attributs + placeholders + éléments à balises
+  for (const [id, attr] of [["countries-btn", "title"], ["share", "title"], ["sheet-handle", "title"]]) {
+    const el = $(id);
+    if (!el) continue;
+    const key = "attr:" + id;
+    if (!staticSrc.has(key)) staticSrc.set(key, el.getAttribute(attr) || "");
+    el.setAttribute(attr, t(staticSrc.get(key)));
+  }
+  for (const id of ["clan-name", "clan-code"]) {
+    const el = $(id);
+    if (!el) continue;
+    const key = "ph:" + id;
+    if (!staticSrc.has(key)) staticSrc.set(key, el.placeholder);
+    el.placeholder = t(staticSrc.get(key));
+  }
+  if (LANG !== "fr") document.title = t("Tilevore — le jeu qui dévore la carte, case par case");
+  for (const sel of ["#welcome .pitch", "#consent-card h2", "#consent-card p", "#ranking h2", "#countries-card h2", "#s-tiles + i", "#s-km + i", "#s-acts + i"]) {
+    const el = document.querySelector(sel);
+    if (!el) continue;
+    if (!staticSrc.has(sel)) staticSrc.set(sel, el.innerHTML);
+    el.innerHTML = t(staticSrc.get(sel));
+  }
+}
+
+function setLang(l) {
+  if (!LANGS.includes(l) || l === LANG) return;
+  localStorage.setItem("lang", l);
+  // persiste côté serveur (notifs push traduites) puis recharge : plus
+  // simple et plus sûr qu'un re-rendu à chaud de tous les écrans
+  api("/api/lang", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ lang: l }),
+  }).catch(() => {}).finally(() => location.reload());
+}
+
 let firstFit = true;
 let styleReady = false;
 
@@ -679,10 +1061,10 @@ const initLayers = () => {
     const p = e.features[0].properties;
     let html;
     if (p.enclave) {
-      html = '<b>Enclave</b><br><span style="color:#5c6b66">Encerclée par ton territoire, comptée conquise</span>';
+      html = `<b>${t("Enclave")}</b><br><span style="color:#5c6b66">${t("Encerclée par ton territoire, comptée conquise")}</span>`;
     } else {
       const sports = typeof p.sports === "string" ? JSON.parse(p.sports) : p.sports;
-      html = "<b>" + (sports.length > 1 ? "Case hybride" : "Case conquise") + "</b><br>" +
+      html = "<b>" + (sports.length > 1 ? t("Case hybride") : t("Case conquise")) + "</b><br>" +
         sports.map((s) =>
           `<span class="pop-dot" style="background:${colorFor(s)}"></span>${s}`
         ).join("<br>");
@@ -696,12 +1078,12 @@ const initLayers = () => {
     const p = e.features[0].properties;
     let when = "";
     try {
-      when = new Date(p.capturedAt).toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
+      when = new Date(p.capturedAt).toLocaleDateString(LOCALE, { day: "numeric", month: "long" });
     } catch {}
-    let html = `<b>🏰 ${esc(p.name)}${p.mine === true || p.mine === "true" ? " (toi)" : ""}</b>`;
+    let html = `<b>🏰 ${esc(p.name)}${p.mine === true || p.mine === "true" ? t(" (toi)") : ""}</b>`;
     if (p.clanName) html += `<br><span style="color:#9ab3a4">🛡️ ${esc(p.clanName)}</span>`;
-    html += `<br><span style="color:#9ab3a4">${p.city ? esc(p.city) + " · " : ""}prise le ${when}</span>`;
-    if (p.stolenFrom) html += `<br><span style="color:#e57bb1">⚔️ volée à ${esc(p.stolenFrom)}</span>`;
+    html += `<br><span style="color:#9ab3a4">${p.city ? esc(p.city) + " · " : ""}${t("prise le {when}", { when })}</span>`;
+    if (p.stolenFrom) html += `<br><span style="color:#e57bb1">${t("⚔️ volée à {name}", { name: esc(p.stolenFrom) })}</span>`;
     new maplibregl.Popup({ closeButton: false, maxWidth: "240px" })
       .setLngLat(e.lngLat).setHTML(html).addTo(map);
   });
@@ -1253,7 +1635,7 @@ async function spectate(id, name) {
   setMode(false);
   applyFilter();
   if (t.features.length) map.fitBounds(denseBounds(t.features), { padding: 70, maxZoom: 12 });
-  $("spectate-name").textContent = `👀 Carte de ${name}`;
+  $("spectate-name").textContent = t("👀 Carte de {name}", { name });
   $("spectate-bar").style.display = "flex";
   $("panel").classList.remove("expanded");
 }
@@ -1355,9 +1737,9 @@ function equivalence(km2) {
   let unit = AREA_UNITS[0];
   for (const u of AREA_UNITS) if (km2 / u[1] >= 0.9) unit = u;
   const r = km2 / unit[1];
-  if (r < 0.9) return `≈ ${Math.round(r * 100)} % de ${unit[0]}`;
+  if (r < 0.9) return t("≈ {n} % de {unit}", { n: Math.round(r * 100), unit: t(unit[0]) });
   const n = r >= 10 ? Math.round(r) : Math.round(r * 10) / 10;
-  return `≈ ${n.toLocaleString("fr-FR")} × ${unit[0]}`;
+  return t("≈ {n} × {unit}", { n: n.toLocaleString(LOCALE), unit: t(unit[0]) });
 }
 
 let lastStats = null; // pour l'image de partage
@@ -1365,9 +1747,9 @@ let lastStats = null; // pour l'image de partage
 async function refreshStats() {
   const s = await api("/api/stats" + (periodSince ? `?since=${periodSince}` : ""));
   if (!s) return;
-  $("s-tiles").textContent = s.tiles.toLocaleString("fr-FR");
-  $("s-acts").textContent = s.activities.toLocaleString("fr-FR");
-  $("s-km").textContent = Math.round(s.distance_m / 1000).toLocaleString("fr-FR");
+  $("s-tiles").textContent = s.tiles.toLocaleString(LOCALE);
+  $("s-acts").textContent = s.activities.toLocaleString(LOCALE);
+  $("s-km").textContent = Math.round(s.distance_m / 1000).toLocaleString(LOCALE);
 
   lastStats = s;
 
@@ -1376,32 +1758,32 @@ async function refreshStats() {
   const cur = TIERS[lvl];
   const next = TIERS[lvl + 1];
   s.tier = cur;
-  $("lvl-name").textContent = cur[1];
+  $("lvl-name").textContent = t(cur[1]);
   $("lvl-badge").style.background = cur[2];
-  const streak = s.streak > 1 ? ` · 🔥 ${s.streak} sem.` : "";
+  const streak = s.streak > 1 ? t(" · 🔥 {n} sem.", { n: s.streak }) : "";
   if (next) {
     $("lvl-count").textContent =
-      `${s.tiles.toLocaleString("fr-FR")} / ${next[0].toLocaleString("fr-FR")} cases${streak}`;
+      t("{a} / {b} cases", { a: s.tiles.toLocaleString(LOCALE), b: next[0].toLocaleString(LOCALE) }) + streak;
     $("lvl-fill").style.width =
       `${Math.round((100 * (s.tiles - cur[0])) / (next[0] - cur[0]))}%`;
     $("lvl-fill").style.background = cur[2];
   } else {
-    $("lvl-count").textContent = `${s.tiles.toLocaleString("fr-FR")} cases${streak}`;
+    $("lvl-count").textContent = t("{n} cases", { n: s.tiles.toLocaleString(LOCALE) }) + streak;
     $("lvl-fill").style.width = "100%";
   }
   const km2 = Math.round(s.area_km2 || 0);
   const eq = equivalence(km2);
-  const quand = s.period ? ` en ${s.period.slice(0, 4)}` : "";
+  const quand = s.period ? t(" en {y}", { y: s.period.slice(0, 4) }) : "";
   $("equiv").textContent = km2 >= 1
-    ? `${km2.toLocaleString("fr-FR")} km² conquis${quand}${eq ? " · " + eq : ""}`
+    ? t("{n} km² conquis", { n: km2.toLocaleString(LOCALE) }) + quand + (eq ? " · " + eq : "")
     : "";
   $("level").style.display = "block";
 
   // Résumé du bottom-sheet replié (mobile) : gemme + rang + cases + km
-  const km = Math.round(s.distance_m / 1000).toLocaleString("fr-FR");
+  const km = Math.round(s.distance_m / 1000).toLocaleString(LOCALE);
   $("sheet-summary").innerHTML =
     `<span class="g" style="background:${cur[2]}"></span>` +
-    `<b>${cur[1]}</b> · ${s.tiles.toLocaleString("fr-FR")} cases · ${km} km`;
+    `<b>${t(cur[1])}</b> · ${t("{n} cases", { n: s.tiles.toLocaleString(LOCALE) })} · ${km} km`;
 }
 
 // --- Classement global : joueurs et clans, en % du leader ---
@@ -1409,8 +1791,8 @@ let lbMode = "players";
 
 // Glyphe fille / garçon (champ sexe fourni par Strava, absent = rien)
 function sexGlyph(sex) {
-  if (sex === "F") return '<span class="sx f" title="Femme">\u2640</span>';
-  if (sex === "M") return '<span class="sx m" title="Homme">\u2642</span>';
+  if (sex === "F") return `<span class="sx f" title="${t("Femme")}">\u2640</span>`;
+  if (sex === "M") return `<span class="sx m" title="${t("Homme")}">\u2642</span>`;
   return "";
 }
 
@@ -1420,7 +1802,7 @@ function lbRow(rank, who, tiles, leaderTiles, isMe, sex) {
     <div class="lb-line">
       <span class="rank">${rank}</span>
       <span class="who">${esc(who)}${sexGlyph(sex)}</span>
-      <span class="val">${tiles.toLocaleString("fr-FR")} cases</span>
+      <span class="val">${t("{n} cases", { n: tiles.toLocaleString(LOCALE) })}</span>
     </div>
     <div class="lb-bar"><div style="width:${pct}%"></div></div>
   </div>`;
@@ -1435,7 +1817,7 @@ async function refreshRanking() {
       ? lb.top.map((p, i) =>
           lbRow(i + 1, `${p.name}`, p.tiles, leader, lb.me && p.id === lb.me.id, p.sex)
         ).join("")
-      : '<div class="lb-sep">Territoire vierge — à toi de jouer</div>';
+      : `<div class="lb-sep">${t("Territoire vierge — à toi de jouer")}</div>`;
     if (lb.me && lb.me.rank > lb.top.length)
       html += `<div class="lb-sep">…</div>` + lbRow(lb.me.rank, lb.me.name, lb.me.tiles, leader, true, lb.me.sex);
     $("lb-rows").innerHTML = html;
@@ -1445,7 +1827,7 @@ async function refreshRanking() {
       ? rows.map((c, i) =>
           lbRow(i + 1, `${c.name} (${c.members})`, c.tiles, rows[0].tiles, false)
         ).join("")
-      : '<div class="lb-sep">Aucun clan pour l\'instant</div>';
+      : `<div class="lb-sep">${t("Aucun clan pour l'instant")}</div>`;
   } else {
     // période « cette année » = mode SAISON : seules comptent les premières
     // conquêtes de l'année, tout le monde repart de zéro le 1er janvier
@@ -1463,7 +1845,7 @@ async function refreshRanking() {
     $("lb-rows").innerHTML = html;
   }
   document.querySelector("#ranking h2").textContent =
-    periodSince && lbMode === "players" ? `🏆 Saison ${new Date().getFullYear()}` : "Classement";
+    periodSince && lbMode === "players" ? t("🏆 Saison {y}", { y: new Date().getFullYear() }) : t("Classement");
   $("ranking").style.display = "block";
 }
 
@@ -1480,7 +1862,7 @@ async function refreshClan() {
   const clan = await api("/api/clans/me");
   $("clan").style.display = "block";
   if (!clan) {
-    $("clan-title").textContent = "Pas encore de clan";
+    $("clan-title").textContent = t("Pas encore de clan");
     $("clan-forms").style.display = "block";
     $("board").innerHTML = "";
     $("weekly").innerHTML = "";
@@ -1493,21 +1875,21 @@ async function refreshClan() {
   $("clan-forms").style.display = "none";
   document.querySelector("#clan .tabs").style.display = "flex";
   $("clan-title").innerHTML =
-    `Clan · ${esc(clan.name)} <button id="clan-invite">🔗 Inviter</button>`;
+    `${t("Clan")} · ${esc(clan.name)} <button id="clan-invite">${t("🔗 Inviter")}</button>`;
   // Lien d'invitation : une URL à partager, le clan se rejoint tout seul
   // (même avant connexion : le code est retenu jusqu'à l'OAuth).
   $("clan-invite").onclick = async () => {
     const link = `${location.origin}/?clan=${encodeURIComponent(clan.invite_code)}`;
-    const msg = `Rejoins mon clan « ${clan.name} » sur Tilevore !`;
+    const msg = t("Rejoins mon clan « {name} » sur Tilevore !", { name: clan.name });
     if (navigator.share) {
       try { await navigator.share({ title: "Tilevore", text: msg, url: link }); return; } catch {}
     }
     try {
       await navigator.clipboard.writeText(`${msg} ${link}`);
-      $("clan-invite").textContent = "✓ Lien copié";
-      setTimeout(() => ($("clan-invite").textContent = "🔗 Inviter"), 2000);
+      $("clan-invite").textContent = t("✓ Lien copié");
+      setTimeout(() => ($("clan-invite").textContent = t("🔗 Inviter")), 2000);
     } catch {
-      prompt("Copie ce lien d'invitation :", link);
+      prompt(t("Copie ce lien d'invitation :"), link);
     }
   };
   const myId = Number(($("strava-profile").href.match(/athletes\/(\d+)/) || [])[1]);
@@ -1525,13 +1907,13 @@ async function refreshClan() {
       (m, i) => `
       <div class="member${m.id !== myId ? " mate" : ""}" data-id="${m.id}" data-name="${esc(m.name)}">
         <span class="rank">${i + 1}</span>
-        <span class="who">${esc(m.name)}${m.id === chiefId ? ' <span title="Chef du clan">👑</span>' : ""}${sexGlyph(m.sex)}${m.id !== myId ? '<span class="peek">👀 voir sa carte</span>' : ""}${
-          chiefId === myId && m.id !== myId ? `<button class="make-chief" data-id="${m.id}" title="Nommer chef du clan">👑</button>` : ""
+        <span class="who">${esc(m.name)}${m.id === chiefId ? ` <span title="${t("Chef du clan")}">👑</span>` : ""}${sexGlyph(m.sex)}${m.id !== myId ? `<span class="peek">${t("👀 voir sa carte")}</span>` : ""}${
+          chiefId === myId && m.id !== myId ? `<button class="make-chief" data-id="${m.id}" title="${t("Nommer chef du clan")}">👑</button>` : ""
         }</span>
         <span class="val">${
           metric === "km"
-            ? m.km.toLocaleString("fr-FR") + " km"
-            : m.tiles.toLocaleString("fr-FR") + " cases"
+            ? m.km.toLocaleString(LOCALE) + " km"
+            : t("{n} cases", { n: m.tiles.toLocaleString(LOCALE) })
         }</span>
       </div>`
     )
@@ -1545,10 +1927,10 @@ async function refreshClan() {
   if (isChief) {
     $("clan-title").insertAdjacentHTML(
       "beforeend",
-      ` <button id="clan-rename" title="Renommer le clan">✏️</button>`
+      ` <button id="clan-rename" title="${t("Renommer le clan")}">✏️</button>`
     );
     $("clan-rename").onclick = async () => {
-      const name = prompt("Nouveau nom du clan :", clan.name);
+      const name = prompt(t("Nouveau nom du clan :"), clan.name);
       if (!name?.trim() || name.trim() === clan.name) return;
       await api("/api/clans/rename", {
         method: "POST",
@@ -1562,7 +1944,7 @@ async function refreshClan() {
       el.onclick = async (ev) => {
         ev.stopPropagation(); // ne pas déclencher le mode spectateur
         const target = rows.find((r) => r.id === Number(el.dataset.id));
-        if (!confirm(`Faire de ${target.name} le chef du clan ? Tu perdras tes pouvoirs de chef.`)) return;
+        if (!confirm(t("Faire de {name} le chef du clan ? Tu perdras tes pouvoirs de chef.", { name: target.name }))) return;
         await api("/api/clans/transfer", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1572,12 +1954,12 @@ async function refreshClan() {
       };
     }
   }
-  $("clan-actions").innerHTML = `<button id="clan-leave">quitter le clan</button>`;
+  $("clan-actions").innerHTML = `<button id="clan-leave">${t("quitter le clan")}</button>`;
   $("clan-leave").onclick = async () => {
     const warn = isChief && rows.length > 1
-      ? "\nTu es chef : le rôle passera au membre le plus ancien."
-      : rows.length === 1 ? "\nTu es le dernier membre : le clan sera supprimé." : "";
-    if (!confirm(`Quitter le clan « ${clan.name} » ?${warn}`)) return;
+      ? "\n" + t("Tu es chef : le rôle passera au membre le plus ancien.")
+      : rows.length === 1 ? "\n" + t("Tu es le dernier membre : le clan sera supprimé.") : "";
+    if (!confirm(t("Quitter le clan « {name} » ?", { name: clan.name }) + warn)) return;
     await api("/api/clans/leave", { method: "POST" });
     myClanId = null;
     refreshClan();
@@ -1588,24 +1970,24 @@ async function refreshClan() {
   // donner une chance à tout le monde face aux gros totaux cumulés.
   const week = clan.weekly || [];
   const shortName = (m) => `${m.firstname || ""} ${(m.lastname || "").slice(0, 1)}${m.lastname ? "." : ""}`.trim();
-  const kmFmt = (v) => (v / 1000).toLocaleString("fr-FR", { maximumFractionDigits: 1 }) + " km";
-  const nFmt = (u) => (v) => v.toLocaleString("fr-FR") + " " + u;
+  const kmFmt = (v) => (v / 1000).toLocaleString(LOCALE, { maximumFractionDigits: 1 }) + " km";
+  const nFmt = (u) => (v) => v.toLocaleString(LOCALE) + " " + u;
   const podium = (title, fmt, get) => {
     const top = week.filter((m) => get(m) > 0).sort((a, b) => get(b) - get(a)).slice(0, 3);
     const inner = top.length
       ? top.map((m, i) => `
         <div class="member"><span class="rank">${["🥇", "🥈", "🥉"][i]}</span>
         <span class="who">${esc(shortName(m))}${sexGlyph(m.sex)}</span><span class="val">${fmt(get(m))}</span></div>`).join("")
-      : '<p class="empty">à prendre — personne encore cette semaine</p>';
+      : `<p class="empty">${t("à prendre — personne encore cette semaine")}</p>`;
     return `<div class="wk"><h4>${title}</h4>${inner}</div>`;
   };
   $("weekly").innerHTML =
-    "<h3>Défis de la semaine</h3>" +
-    podium("🚴 Le plus de kilomètres", kmFmt, (m) => m.week_m) +
-    podium("🗺️ Nouvelles cases conquises", nFmt("cases"), (m) => m.new_tiles) +
-    podium("🏰 Territoire pris", nFmt("cases"), (m) => m.territory) +
-    podium("⚔️ Pillard de la semaine", nFmt("cases volées"), (m) => m.stolen) +
-    podium("💪 La plus longue sortie", kmFmt, (m) => m.longest_m);
+    `<h3>${t("Défis de la semaine")}</h3>` +
+    podium(t("🚴 Le plus de kilomètres"), kmFmt, (m) => m.week_m) +
+    podium(t("🗺️ Nouvelles cases conquises"), nFmt(t("cases")), (m) => m.new_tiles) +
+    podium(t("🏰 Territoire pris"), nFmt(t("cases")), (m) => m.territory) +
+    podium(t("⚔️ Pillard de la semaine"), nFmt(t("cases volées")), (m) => m.stolen) +
+    podium(t("💪 La plus longue sortie"), kmFmt, (m) => m.longest_m);
 }
 
 $("view-fog").onclick = () => {
@@ -1669,7 +2051,7 @@ async function refreshTerritory() {
   if (geo && !territoryPopulated) {
     if (!geo.features.some((f) => f.properties.mine)) {
       $("conquest").style.display = "block";
-      $("conquest").textContent = "🏰 Calcul de ton territoire…";
+      $("conquest").textContent = t("🏰 Calcul de ton territoire…");
     }
     const ok = await api("/api/territory/refresh", { method: "POST" });
     // en cas d'échec transitoire, on retentera à la prochaine ouverture
@@ -1684,14 +2066,20 @@ async function refreshTerritory() {
   const el = $("conquest");
   el.style.display = "block";
   if (lb?.me) {
+    const lost = lb.me.lost_week;
     el.innerHTML =
-      `🏰 Ton territoire : <b>${lb.me.tiles.toLocaleString("fr-FR")} cases</b> · ` +
-      `${Math.round(lb.me.area_km2).toLocaleString("fr-FR")} km² · #${lb.me.rank}` +
-      (lb.me.lost_week > 0
-        ? `<br>🚨 <b>${lb.me.lost_week.toLocaleString("fr-FR")} case${lb.me.lost_week > 1 ? "s" : ""} perdue${lb.me.lost_week > 1 ? "s" : ""} cette semaine</b> — va les reprendre !`
+      t("🏰 Ton territoire : <b>{n} cases</b> · {km} km² · #{rank}", {
+        n: lb.me.tiles.toLocaleString(LOCALE),
+        km: Math.round(lb.me.area_km2).toLocaleString(LOCALE),
+        rank: lb.me.rank,
+      }) +
+      (lost > 0
+        ? "<br>" + (lost > 1
+            ? t("🚨 <b>{n} cases perdues cette semaine</b> — va les reprendre !", { n: lost.toLocaleString(LOCALE) })
+            : t("🚨 <b>1 case perdue cette semaine</b> — va la reprendre !"))
         : "");
   } else {
-    el.textContent = "Roule ou encercle une zone pour la conquérir.";
+    el.textContent = t("Roule ou encercle une zone pour la conquérir.");
   }
 }
 
@@ -1733,7 +2121,7 @@ $("join-clan").onclick = async () => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ code }),
   });
-  if (!r) alert("Code inconnu");
+  if (!r) alert(t("Code inconnu"));
   refreshClan();
 };
 
@@ -1760,15 +2148,15 @@ async function poll(preMe) {
   $("progress").style.display = syncing ? "block" : "none";
   if (syncing) { $("sync-btn").style.display = "none"; $("resync").style.display = "none"; }
   $("subtitle").textContent = syncing
-    ? "On analyse où tu as voyagé… tes zones apparaissent en direct ✨"
-    : "Ta carte de conquête";
+    ? t("On analyse où tu as voyagé… tes zones apparaissent en direct ✨")
+    : t("Ta carte de conquête");
   if (syncing && me.sync_total > 0) {
     $("fill").style.width = `${Math.round((100 * me.sync_done) / me.sync_total)}%`;
     $("progress-label").textContent =
-      `Analyse de tes voyages : ${me.sync_done} / ${me.sync_total} activités`;
+      t("Analyse de tes voyages : {done} / {total} activités", { done: me.sync_done, total: me.sync_total });
   } else if (syncing) {
     $("progress-label").textContent =
-      "Bienvenue ! Laisse-nous quelques instants pour récupérer ton historique…";
+      t("Bienvenue ! Laisse-nous quelques instants pour récupérer ton historique…");
   }
   await Promise.all([refreshStats(), refreshMap(), refreshSports(), refreshRanking()]).catch(() => {});
   // Compte sans sorties (sync interrompue, nouveau venu) : le bouton
@@ -1804,7 +2192,7 @@ async function startSync() {
   $("sync-btn").style.display = "none";
   $("resync").style.display = "none";
   $("progress").style.display = "block";
-  $("progress-label").textContent = "R\u00e9cup\u00e9ration de ton historique Strava\u2026";
+  $("progress-label").textContent = t("Récupération de ton historique Strava…");
   await api("/api/sync", { method: "POST" });
   clearTimeout(pollTimer);
   pollTimer = setTimeout(poll, 1500);
@@ -1844,7 +2232,7 @@ async function boot() {
     if (pendingWelcome) {
       const info = await api(`/api/clans/info?code=${encodeURIComponent(pendingWelcome)}`);
       if (info?.name) {
-        $("welcome-join").textContent = `🛡️ Tu vas rejoindre le clan « ${info.name} » — connecte-toi pour entrer.`;
+        $("welcome-join").textContent = t("🛡️ Tu vas rejoindre le clan « {name} » — connecte-toi pour entrer.", { name: info.name });
       } else {
         localStorage.removeItem("pendingClan"); // code invalide : on oublie
       }
@@ -1873,11 +2261,12 @@ async function boot() {
         <div class="w-row">
           <span class="medal">${medals[i]}</span>
           <span class="who">${esc(p.name)}${sexGlyph(p.sex)}</span>
-          <span class="val">${p.tiles.toLocaleString("fr-FR")} cases</span>
+          <span class="val">${t("{n} cases", { n: p.tiles.toLocaleString(LOCALE) })}</span>
         </div>`).join("");
       if (!localStorage.getItem("pendingClan"))
-        $("welcome-join").textContent =
-          `🏁 Déjà ${pub.players} explorateur${pub.players > 1 ? "s" : ""} — viens prendre leur place.`;
+        $("welcome-join").textContent = pub.players > 1
+          ? t("🏁 Déjà {n} explorateurs — viens prendre leur place.", { n: pub.players })
+          : t("🏁 Déjà 1 explorateur — viens prendre sa place.");
     } else {
       $("welcome-top-title").style.display = "none";
     }
@@ -1898,8 +2287,23 @@ async function boot() {
   $("share").style.display = "block";
   $("countries-btn").style.display = "block";
   $("name").textContent = `${me.firstname} ${me.lastname ?? ""}`;
-  $("subtitle").textContent = "Ta carte de conquête";
+  $("subtitle").textContent = t("Ta carte de conquête");
   if (me.profile && me.profile.startsWith("http")) $("avatar").src = me.profile;
+  // langue du compte : si l'utilisateur n'a pas choisi ici (localStorage
+  // vide) mais a déjà une préférence serveur, on l'adopte ; sinon on
+  // enregistre la langue courante pour les notifications push.
+  if (me.lang && !localStorage.getItem("lang") && me.lang !== LANG) {
+    localStorage.setItem("lang", me.lang);
+    location.reload();
+    return;
+  }
+  if (me.lang !== LANG) {
+    api("/api/lang", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lang: LANG }),
+    }).catch(() => {});
+  }
   await requireConsent(me); // bloque tout tant que le consentement n'est pas donné
   initPushUI();
   const pendingClan = localStorage.getItem("pendingClan");
@@ -1924,18 +2328,18 @@ async function boot() {
 
 // --- Menu "Mes pays" : score par pays + zone principale ---
 function fmtPct(p) {
-  if (p >= 1) return `${(Math.round(p * 10) / 10).toLocaleString("fr-FR")} %`;
-  if (p >= 0.01) return `${(Math.round(p * 100) / 100).toLocaleString("fr-FR")} %`;
-  return "< 0,01 %";
+  if (p >= 1) return `${(Math.round(p * 10) / 10).toLocaleString(LOCALE)} %`;
+  if (p >= 0.01) return `${(Math.round(p * 100) / 100).toLocaleString(LOCALE)} %`;
+  return t("< 0,01 %");
 }
 
 // Titre de noblesse par ville : Roi = plus gros détenteur de la carte
 // partagée (>= 10 cases), sinon paliers sur TES cases dans la ville.
 function cityTitle(c, myId) {
-  if (c.king && c.king.id === myId && c.king.tiles >= 10) return ["roi", "👑 Roi"];
-  if (c.tiles >= 50) return ["", "Duc"];
-  if (c.tiles >= 25) return ["", "Vicomte"];
-  if (c.tiles >= 10) return ["", "Baron"];
+  if (c.king && c.king.id === myId && c.king.tiles >= 10) return ["roi", t("👑 Roi")];
+  if (c.tiles >= 50) return ["", t("Duc")];
+  if (c.tiles >= 25) return ["", t("Vicomte")];
+  if (c.tiles >= 10) return ["", t("Baron")];
   return null;
 }
 
@@ -1954,28 +2358,28 @@ $("zones-countries").onclick = () => setZonesTab("countries");
 $("zones-cities").onclick = () => setZonesTab("cities");
 
 async function renderCities() {
-  $("cities-rows").innerHTML = '<div class="lb-sep">Calcul en cours…</div>';
+  $("cities-rows").innerHTML = `<div class="lb-sep">${t("Calcul en cours…")}</div>`;
   const d = await api("/api/cities");
   if (!d) return;
   const meId = Number(($("strava-profile").href.match(/athletes\/(\d+)/) || [])[1]);
   let html = d.cities.length
     ? d.cities.map((c) => {
-        const t = cityTitle(c, meId);
+        const title = cityTitle(c, meId);
         const kingLabel = c.king
-          ? (c.king.id === meId ? "tu tiens la ville" : `👑 ${esc(c.king.name)} · ${c.king.tiles.toLocaleString("fr-FR")}`)
+          ? (c.king.id === meId ? t("tu tiens la ville") : `👑 ${esc(c.king.name)} · ${c.king.tiles.toLocaleString(LOCALE)}`)
           : "";
         return `
         <div class="country-row">
           <div class="country-line">
             <span class="who">${esc(c.city)}</span>
-            ${t ? `<span class="rank-title ${t[0]}">${t[1]}</span>` : ""}
-            <span class="val">${c.tiles.toLocaleString("fr-FR")} cases${kingLabel ? " · " + kingLabel : ""}</span>
+            ${title ? `<span class="rank-title ${title[0]}">${title[1]}</span>` : ""}
+            <span class="val">${t("{n} cases", { n: c.tiles.toLocaleString(LOCALE) })}${kingLabel ? " · " + kingLabel : ""}</span>
           </div>
         </div>`;
       }).join("")
-    : '<div class="lb-sep">Aucune ville pour l\'instant</div>';
+    : `<div class="lb-sep">${t("Aucune ville pour l'instant")}</div>`;
   if (d.geocoding)
-    html += '<div class="lb-sep">🌐 Repérage des communes en cours — la liste s\'enrichit toute seule</div>';
+    html += `<div class="lb-sep">${t("🌐 Repérage des communes en cours — la liste s'enrichit toute seule")}</div>`;
   $("cities-rows").innerHTML = html;
 }
 
@@ -1983,7 +2387,7 @@ let mainZoneReady = false;
 async function openCountries() {
   $("countries-modal").style.display = "block";
   setZonesTab("countries");
-  $("countries-rows").innerHTML = '<div class="lb-sep">Calcul en cours…</div>';
+  $("countries-rows").innerHTML = `<div class="lb-sep">${t("Calcul en cours…")}</div>`;
 
   // Zone principale : cluster le plus dense + nom via Nominatim
   if (tilesData.features.length) {
@@ -1991,23 +2395,23 @@ async function openCountries() {
     const c = b.getCenter();
     mainZoneReady = true;
     $("main-zone").style.display = "flex";
-    $("main-zone-label").textContent = "Zone principale : …";
+    $("main-zone-label").textContent = t("Zone principale : …");
     $("main-zone-go").onclick = () => {
       $("countries-modal").style.display = "none";
       map.fitBounds(b, { padding: 70, maxZoom: 12 });
     };
-    fetch(`https://nominatim.openstreetmap.org/reverse?lat=${c.lat}&lon=${c.lng}&format=json&zoom=10&accept-language=fr`)
+    fetch(`https://nominatim.openstreetmap.org/reverse?lat=${c.lat}&lon=${c.lng}&format=json&zoom=10&accept-language=${LANG}`)
       .then((r) => r.json())
       .then((j) => {
         const a = j.address || {};
         const place = a.city || a.town || a.village || a.municipality || a.county || "";
         $("main-zone-label").textContent =
-          `Zone principale : ${[place, a.country].filter(Boolean).join(", ") || "—"}`;
+          t("Zone principale : {place}", { place: [place, a.country].filter(Boolean).join(", ") || "—" });
       })
-      .catch(() => ($("main-zone-label").textContent = "Zone principale"));
+      .catch(() => ($("main-zone-label").textContent = t("Zone principale")));
   }
 
-  countryRows = (await api("/api/countries")) || [];
+  countryRows = (await api(`/api/countries?lang=${LANG}`)) || [];
   renderCountries();
 }
 
@@ -2028,16 +2432,16 @@ function renderCountries() {
       : (100 * c[countrySort]) / max;
   $("countries-rows").innerHTML = rows.length
     ? rows.map((c, i) => `
-      <div class="country-row" data-i="${i}" title="Voir mes cases : ${c.name}">
+      <div class="country-row" data-i="${i}" title="${t("Voir mes cases : {name}", { name: c.name })}">
         <div class="country-line">
           <span>${c.flag || "🏳️"}</span>
           <span class="who">${c.name}</span>
-          <span class="val">${Math.round(c.km).toLocaleString("fr-FR")} km · ${c.tiles.toLocaleString("fr-FR")} cases · ${fmtPct(c.pct)}</span>
-          <span class="go">Y aller ›</span>
+          <span class="val">${Math.round(c.km).toLocaleString(LOCALE)} km · ${t("{n} cases", { n: c.tiles.toLocaleString(LOCALE) })} · ${fmtPct(c.pct)}</span>
+          <span class="go">${t("Y aller ›")}</span>
         </div>
         <div class="country-bar"><div style="width:${Math.max(0.5, barPct(c))}%"></div></div>
       </div>`).join("")
-    : '<div class="lb-sep">Aucune case pour l\'instant</div>';
+    : `<div class="lb-sep">${t("Aucune case pour l'instant")}</div>`;
   for (const el of document.querySelectorAll(".country-row")) {
     el.onclick = () => {
       const c = rows[Number(el.dataset.i)];
@@ -2100,7 +2504,7 @@ async function shareCard() {
 
   // badge de rang
   ctx.font = "600 34px ui-sans-serif, system-ui";
-  const label = tier[1].toUpperCase();
+  const label = t(tier[1]).toUpperCase();
   const tw = ctx.measureText(label).width;
   ctx.fillStyle = tier[2];
   ctx.beginPath();
@@ -2114,13 +2518,13 @@ async function shareCard() {
   const km2 = Math.round(s.area_km2 || 0);
   const eq = equivalence(km2);
   ctx.fillText(
-    `${s.tiles.toLocaleString("fr-FR")} cases · ${km2.toLocaleString("fr-FR")} km²${eq ? " · " + eq : ""}`,
+    `${t("{n} cases", { n: s.tiles.toLocaleString(LOCALE) })} · ${km2.toLocaleString(LOCALE)} km²${eq ? " · " + eq : ""}`,
     60, H - 110
   );
   ctx.font = "700 30px ui-sans-serif, system-ui";
   ctx.fillStyle = "rgba(255,255,255,0.65)";
   ctx.letterSpacing = "6px";
-  ctx.fillText("TERRITOIRES", 60, H - 52);
+  ctx.fillText("TILEVORE", 60, H - 52);
   ctx.letterSpacing = "0px";
 
   // attribution requise par les guidelines de marque Strava
@@ -2130,13 +2534,13 @@ async function shareCard() {
   ctx.fillText(pbs, W - 60 - ctx.measureText(pbs).width, H - 52);
 
   c.toBlob(async (blob) => {
-    const file = new File([blob], "territoires.png", { type: "image/png" });
+    const file = new File([blob], "tilevore.png", { type: "image/png" });
     if (navigator.canShare?.({ files: [file] })) {
-      try { await navigator.share({ files: [file], title: "Mes territoires" }); return; } catch {}
+      try { await navigator.share({ files: [file], title: t("Mon territoire Tilevore") }); return; } catch {}
     }
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "territoires.png";
+    a.download = "tilevore.png";
     a.click();
     URL.revokeObjectURL(a.href);
   }, "image/png");
@@ -2191,7 +2595,7 @@ function initPushUI() {
     btn.style.pointerEvents = "none";
     try {
       await subscribePush(); // la permission se demande ICI, sur le clic
-      btn.textContent = "Notifications activées ✓";
+      btn.textContent = t("Notifications activées ✓");
     } catch (e) {
       console.error(e);
       btn.style.pointerEvents = "";
@@ -2218,11 +2622,17 @@ function requireConsent(me) {
   });
 }
 
+applyStaticI18n();
+for (const b of document.querySelectorAll("#lang-switch button")) {
+  b.classList.toggle("on", b.dataset.lang === LANG);
+  b.onclick = () => setLang(b.dataset.lang);
+}
+
 boot();
 
 $("connect").onclick = () => (location.href = "/auth/strava");
 $("delete-account").onclick = async () => {
-  if (!confirm("Supprimer définitivement ton compte, tes activités et tout ton territoire ? L'accès Strava sera aussi révoqué.")) return;
+  if (!confirm(t("Supprimer définitivement ton compte, tes activités et tout ton territoire ? L'accès Strava sera aussi révoqué."))) return;
   await api("/api/me/delete", { method: "POST" });
   location.reload();
 };
