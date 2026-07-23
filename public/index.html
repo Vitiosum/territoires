@@ -167,12 +167,13 @@
     display: none; width: 100%; margin-top: 6px; padding: 6px; font-size: 12px;
     color: #e08b7f; background: none; border: 0; cursor: pointer; text-decoration: underline;
   }
-  #lang-switch { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 12px; }
-  #lang-switch button {
-    padding: 4px 10px; font-size: 11.5px; letter-spacing: .04em; border-radius: 7px;
-    border: 1px solid var(--brass-dim); background: none; color: var(--muted); cursor: pointer;
+  #lang-switch { display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 12px; font-size: 13px; }
+  #lang-select {
+    padding: 5px 10px; font-size: 12px; letter-spacing: .02em; border-radius: 8px;
+    border: 1px solid var(--brass-dim); background: rgba(8, 23, 19, 0.6); color: var(--muted);
+    cursor: pointer; appearance: auto; -webkit-appearance: menulist-button;
   }
-  #lang-switch button.on { background: var(--brand); border-color: var(--brand); color: #06231b; font-weight: 700; }
+  #lang-select:focus { outline: none; border-color: var(--brand); color: var(--brand); }
   #strava-profile { display: none; margin-top: 10px; font-size: 12px; color: #fc7433; text-decoration: underline; }
   #powered {
     display: flex; align-items: center; justify-content: center; gap: 6px;
@@ -521,8 +522,18 @@
   <a id="strava-profile" href="https://www.strava.com" target="_blank" rel="noopener">Voir mon profil sur Strava ↗</a>
   <button id="logout" style="display:none">déconnexion</button>
   <button id="delete-account">Supprimer mon compte et toutes mes données</button>
-  <div id="lang-switch" role="group" aria-label="Langue">
-    <button data-lang="fr">FR</button><button data-lang="en">EN</button><button data-lang="it">IT</button><button data-lang="es">ES</button><button data-lang="de">DE</button><button data-lang="pt">PT</button><button data-lang="nl">NL</button><button data-lang="pl">PL</button>
+  <div id="lang-switch">
+    <span aria-hidden="true">🌐</span>
+    <select id="lang-select" aria-label="Langue / Language">
+      <option value="fr">Français</option>
+      <option value="en">English</option>
+      <option value="it">Italiano</option>
+      <option value="es">Español</option>
+      <option value="de">Deutsch</option>
+      <option value="pt">Português</option>
+      <option value="nl">Nederlands</option>
+      <option value="pl">Polski</option>
+    </select>
   </div>
 
   <a id="powered" href="https://www.strava.com" target="_blank" rel="noopener">
@@ -2385,10 +2396,9 @@ function requireConsent(me) {
     try { I18N = await (await fetch(`/i18n/${LANG}.json`)).json(); } catch {}
   }
   applyStaticI18n();
-  for (const b of document.querySelectorAll("#lang-switch button")) {
-    b.classList.toggle("on", b.dataset.lang === LANG);
-    b.onclick = () => setLang(b.dataset.lang);
-  }
+  const sel = $("lang-select");
+  sel.value = LANG;
+  sel.onchange = () => setLang(sel.value);
   boot();
 })();
 
